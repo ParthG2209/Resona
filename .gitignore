@@ -1,36 +1,32 @@
-# Xcode
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
-*.xcworkspace/xcshareddata/
-*.xccheckout
-*.moved-aside
-DerivedData/
-*.hmap
-*.ipa
-*.dSYM.zip
-*.dSYM
+# Xcode user-specific data — never commit these
+xcuserdata/
+*.xcuserstate
+xcschememanagement.plist
+
+# Xcode workspace user data
+project.xcworkspace/xcuserdata/
 
 # Swift Package Manager
 .build/
 *.resolved
 
-# macOS
+# macOS junk
 .DS_Store
 .AppleDouble
 .LSOverride
 ._*
 
 # Credentials — NEVER commit these
-Resona/Utilities/Constants.swift.local
 *.p8
 *.pem
 *.key
 Secrets.xcconfig
 
 # Build output
+DerivedData/
 build/
+*.ipa
 *.app
-
-# CocoaPods (if used later)
-Pods/
-Podfile.lock
+*.dSYM
+*.dSYM.zip
+*.hmap
