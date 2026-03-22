@@ -6,11 +6,14 @@ import AppKit
 // macOS routes that URL to our app via NSAppleEventManager.
 //
 // Register this in AppDelegate.applicationDidFinishLaunching:
-//   URLSchemeHandler.register()
+//   URLSchemeHandler.shared.register()
 
-enum URLSchemeHandler {
+final class URLSchemeHandler: NSObject {
 
-    static func register() {
+    static let shared = URLSchemeHandler()
+    private override init() {}
+
+    func register() {
         NSAppleEventManager.shared().setEventHandler(
             self,
             andSelector: #selector(handleGetURL(_:replyEvent:)),
@@ -19,8 +22,8 @@ enum URLSchemeHandler {
         )
     }
 
-    @objc static func handleGetURL(_ event: NSAppleEventDescriptor,
-                                   replyEvent: NSAppleEventDescriptor) {
+    @objc func handleGetURL(_ event: NSAppleEventDescriptor,
+                            replyEvent: NSAppleEventDescriptor) {
         guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URL(string: urlString)
         else {
@@ -30,7 +33,6 @@ enum URLSchemeHandler {
 
         Logger.info("URLSchemeHandler received: \(url.absoluteString)")
 
-        // Route based on host / path
         switch url.host {
         case "callback":
             handleCallback(url: url)
@@ -41,9 +43,8 @@ enum URLSchemeHandler {
 
     // MARK: - Routing
 
-    private static func handleCallback(url: URL) {
-        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        let path = url.path   // e.g. "/spotify"
+    private func handleCallback(url: URL) {
+        let path = url.path
 
         if path.contains("spotify") {
             SpotifyService.shared.handleCallback(url: url)
