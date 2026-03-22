@@ -1,0 +1,36 @@
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+*.resolved
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Credentials — NEVER commit these
+Resona/Utilities/Constants.swift.local
+*.p8
+*.pem
+*.key
+Secrets.xcconfig
+
+# Build output
+build/
+*.app
+
+# CocoaPods (if used later)
+Pods/
+Podfile.lock
