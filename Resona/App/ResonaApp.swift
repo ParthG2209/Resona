@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         // Register resona:// URL scheme for OAuth callbacks
-        URLSchemeHandler.register()
+        URLSchemeHandler.shared.register()
 
         // Boot core services
         musicDetectionService = MusicDetectionService.shared
