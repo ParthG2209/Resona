@@ -41,6 +41,8 @@ final class SpotifyService: ObservableObject {
     private var pollTimer: Timer?
     private var authCallbackHandler: ((Result<Void, Error>) -> Void)?
     private var debounceWorkItem: DispatchWorkItem?
+    private var pollCount204: Int = 0
+    private var hasDiagnosed = false
 
     // Use a dedicated URLSession with no caching to avoid stale responses
     private let session: URLSession = {
@@ -224,6 +226,8 @@ final class SpotifyService: ObservableObject {
 
     func startPolling() {
         stopPolling()
+        pollCount204 = 0
+        hasDiagnosed = false
         let interval = TimeInterval(AppSettings.shared.pollingIntervalSeconds)
         print("[Resona] Starting Spotify polling every \(interval)s")
         pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
@@ -254,22 +258,41 @@ final class SpotifyService: ObservableObject {
                 print("[Resona] fetchCurrentlyPlaying: no access token after ensureValidToken succeeded — this is a bug")
                 return
             }
-            guard let url = URL(string: Constants.Spotify.Endpoints.currentlyPlaying) else { return }
+
+            // Build URL with additional_types to ensure the API returns track data
+            var components = URLComponents(string: Constants.Spotify.Endpoints.currentlyPlaying)!
+            components.queryItems = [
+                URLQueryItem(name: "additional_types", value: "track,episode")
+            ]
+            guard let url = components.url else { return }
 
             var req = URLRequest(url: url)
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-            self.session.dataTask(with: req) { data, response, error in
+            self.session.dataTask(with: req) { [weak self] data, response, error in
+                guard let self else { return }
                 if let error {
                     print("[Resona] Spotify poll network error: \(error)")
                     return
                 }
                 if let http = response as? HTTPURLResponse {
-                    print("[Resona] Spotify poll HTTP \(http.statusCode)")
                     if http.statusCode == 204 {
+                        self.pollCount204 += 1
+                        // Log every 30th 204 to avoid flooding, plus always log the first one
+                        if self.pollCount204 == 1 || self.pollCount204 % 30 == 0 {
+                            print("[Resona] Spotify poll HTTP 204 (no active playback) — count: \(self.pollCount204)")
+                        }
+                        // After 10 consecutive 204s, run diagnostics once
+                        if self.pollCount204 == 10 && !self.hasDiagnosed {
+                            self.hasDiagnosed = true
+                            self.runDiagnostics(token: token)
+                        }
                         DispatchQueue.main.async { self.handleNothingPlaying() }
                         return
                     }
+                    // Reset 204 counter on any non-204 response
+                    self.pollCount204 = 0
+                    print("[Resona] Spotify poll HTTP \(http.statusCode)")
                     if http.statusCode == 401 {
                         print("[Resona] 401 — token expired, will refresh on next poll")
                         self.tokenExpiryDate = Date() // force refresh next time
@@ -283,6 +306,87 @@ final class SpotifyService: ObservableObject {
                     return
                 }
                 DispatchQueue.main.async { self.handlePlaybackResponse(json) }
+            }.resume()
+        }
+    }
+
+    // MARK: - Diagnostics
+
+    /// Runs after 10 consecutive 204s to figure out why Spotify sees no active playback.
+    /// Hits /v1/me (user profile) and /v1/me/player (full player state) for more info.
+    private func runDiagnostics(token: String) {
+        print("[Resona] ===== RUNNING SPOTIFY DIAGNOSTICS =====")
+        print("[Resona] Token prefix: \(String(token.prefix(12)))...")
+        print("[Resona] Token expiry: \(tokenExpiryDate?.description ?? "nil")")
+
+        // 1) Check /v1/me — which account is this token for?
+        if let meURL = URL(string: "https://api.spotify.com/v1/me") {
+            var meReq = URLRequest(url: meURL)
+            meReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            session.dataTask(with: meReq) { data, response, error in
+                if let error {
+                    print("[Resona] DIAG /v1/me error: \(error)")
+                    return
+                }
+                if let http = response as? HTTPURLResponse {
+                    print("[Resona] DIAG /v1/me HTTP \(http.statusCode)")
+                }
+                if let data,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    let displayName = json["display_name"] as? String ?? "<unknown>"
+                    let email = json["email"] as? String ?? "<no email scope>"
+                    let product = json["product"] as? String ?? "<unknown>"
+                    let country = json["country"] as? String ?? "<unknown>"
+                    print("[Resona] DIAG Account: \(displayName) (\(email))")
+                    print("[Resona] DIAG Product: \(product), Country: \(country)")
+                } else if let data {
+                    let raw = String(data: data, encoding: .utf8) ?? "<unreadable>"
+                    print("[Resona] DIAG /v1/me raw: \(raw.prefix(300))")
+                }
+            }.resume()
+        }
+
+        // 2) Check /v1/me/player — full player state (different from currently-playing)
+        if let playerURL = URL(string: Constants.Spotify.Endpoints.playbackState) {
+            var playerReq = URLRequest(url: playerURL)
+            playerReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            session.dataTask(with: playerReq) { data, response, error in
+                if let error {
+                    print("[Resona] DIAG /v1/me/player error: \(error)")
+                    return
+                }
+                if let http = response as? HTTPURLResponse {
+                    print("[Resona] DIAG /v1/me/player HTTP \(http.statusCode)")
+                    if http.statusCode == 204 {
+                        print("[Resona] DIAG /v1/me/player also 204 — Spotify sees NO active device at all")
+                        print("[Resona] DIAG ⚠️ Make sure you have Spotify open and playing on this Mac")
+                        print("[Resona] DIAG ⚠️ If using a different device (phone/web), that should also work")
+                        print("[Resona] DIAG ⚠️ Try pausing and resuming playback to wake the Spotify Connect session")
+                        return
+                    }
+                }
+                if let data,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    let isPlaying = json["is_playing"] as? Bool ?? false
+                    let shuffleState = json["shuffle_state"] as? Bool
+                    let deviceDict = json["device"] as? [String: Any]
+                    let deviceName = deviceDict?["name"] as? String ?? "<no device>"
+                    let deviceType = deviceDict?["type"] as? String ?? "<unknown>"
+                    let isActive = deviceDict?["is_active"] as? Bool ?? false
+                    print("[Resona] DIAG Player state: is_playing=\(isPlaying), shuffle=\(shuffleState ?? false)")
+                    print("[Resona] DIAG Device: \(deviceName) (\(deviceType)), active=\(isActive)")
+
+                    if let item = json["item"] as? [String: Any] {
+                        let trackName = item["name"] as? String ?? "<unknown>"
+                        print("[Resona] DIAG Track: \(trackName)")
+                    } else {
+                        print("[Resona] DIAG No track item in player state")
+                    }
+                } else if let data {
+                    let raw = String(data: data, encoding: .utf8) ?? "<unreadable>"
+                    print("[Resona] DIAG /v1/me/player raw: \(raw.prefix(500))")
+                }
+                print("[Resona] ===== END SPOTIFY DIAGNOSTICS =====")
             }.resume()
         }
     }
