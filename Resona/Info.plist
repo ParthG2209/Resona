@@ -2,86 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- App Identity -->
-    <key>CFBundleIdentifier</key>
-    <string>com.resona.app</string>
-    <key>CFBundleName</key>
-    <string>Resona</string>
-    <key>CFBundleDisplayName</key>
-    <string>Resona</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
-    <key>CFBundleExecutable</key>
-    <string>$(EXECUTABLE_NAME)</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-
-    <!-- macOS minimum version -->
-    <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
-
-    <!-- Hide from Dock (menu bar app) -->
-    <key>LSUIElement</key>
-    <true/>
-
-    <!-- URL Scheme for OAuth callbacks -->
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key>
-            <string>com.resona.app</string>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>resona</string>
-            </array>
-        </dict>
-    </array>
-
-    <!-- Privacy usage descriptions (required for App Store) -->
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Resona does not use the microphone.</string>
-
-    <key>NSAppleMusicUsageDescription</key>
-    <string>Resona needs access to Apple Music to display your currently playing track as your desktop wallpaper.</string>
-
-    <!-- MusicKit entitlement — also add in .entitlements file -->
-    <key>com.apple.developer.musickit</key>
-    <true/>
-
-    <!-- App Sandbox — required for App Store, optional for direct distribution -->
-    <!-- If enabling sandbox, add appropriate entitlements in .entitlements -->
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <!-- Allow Spotify and Apple Music APIs -->
-        <key>NSAllowsArbitraryLoads</key>
-        <false/>
-        <key>NSExceptionDomains</key>
-        <dict>
-            <key>api.spotify.com</key>
-            <dict>
-                <key>NSExceptionAllowsInsecureHTTPLoads</key>
-                <false/>
-            </dict>
-            <key>accounts.spotify.com</key>
-            <dict>
-                <key>NSExceptionAllowsInsecureHTTPLoads</key>
-                <false/>
-            </dict>
-            <key>api.music.apple.com</key>
-            <dict>
-                <key>NSExceptionAllowsInsecureHTTPLoads</key>
-                <false/>
-            </dict>
-            <key>i.scdn.co</key>
-            <dict>
-                <key>NSExceptionAllowsInsecureHTTPLoads</key>
-                <false/>
-            </dict>
-        </dict>
-    </dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.resona.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>resona</string>
+			</array>
+		</dict>
+		<dict/>
+	</array>
 </dict>
 </plist>
