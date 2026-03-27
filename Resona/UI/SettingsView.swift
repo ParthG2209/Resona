@@ -1,22 +1,17 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - SettingsView
 
 struct SettingsView: View {
-
-    @StateObject private var settings = AppSettings.shared
-
     var body: some View {
         TabView {
             GeneralTab()
                 .tabItem { Label("General", systemImage: "gear") }
-
             AppearanceTab()
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
-
             AdvancedTab()
                 .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
-
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
@@ -34,7 +29,7 @@ private struct GeneralTab: View {
             Section("App") {
                 Toggle("Enable Resona", isOn: $settings.isEnabled)
                 Toggle("Launch at login", isOn: $settings.launchOnStartup)
-                    .onChange(of: settings.launchOnStartup) { _ in
+                    .onChange(of: settings.launchOnStartup) {
                         // TODO: Register/unregister with SMAppService (macOS 13+)
                     }
             }
@@ -55,7 +50,6 @@ private struct GeneralTab: View {
                     onConnect: { SpotifyService.shared.connect { _ in } },
                     onDisconnect: { SpotifyService.shared.disconnect() }
                 )
-
                 ServiceRow(
                     title: "Apple Music",
                     isConnected: AppSettings.shared.appleMusicConnected,
@@ -100,8 +94,7 @@ private struct AppearanceTab: View {
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Not set")
-                            .foregroundStyle(.tertiary)
+                        Text("Not set").foregroundStyle(.tertiary)
                     }
                     Spacer()
                     Button("Browse…") { browseForWallpaper() }
@@ -147,8 +140,7 @@ private struct AdvancedTab: View {
                             get: { Double(settings.maxCacheSizeMB) },
                             set: { settings.maxCacheSizeMB = Int($0) }
                         ),
-                        in: 100...1000,
-                        step: 100
+                        in: 100...1000, step: 100
                     )
                     .frame(width: 140)
                     Text("\(settings.maxCacheSizeMB) MB")
@@ -156,10 +148,8 @@ private struct AdvancedTab: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Button("Clear Cache Now") {
-                    ArtworkCache.shared.clearAll()
-                }
-                .foregroundStyle(.red)
+                Button("Clear Cache Now") { ArtworkCache.shared.clearAll() }
+                    .foregroundStyle(.red)
             }
 
             Section("Polling") {
@@ -198,18 +188,15 @@ private struct AboutTab: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tint)
 
-            Text("Resona")
-                .font(.largeTitle.bold())
-
-            Text("Version \(Constants.App.version)")
-                .foregroundStyle(.secondary)
+            Text("Resona").font(.largeTitle.bold())
+            Text("Version \(Constants.App.version)").foregroundStyle(.secondary)
 
             Divider()
 
             VStack(alignment: .leading, spacing: 8) {
-                StatusInfoRow(label: "Spotify Canvas", status: "Planned (Phase 3)", color: .orange)
-                StatusInfoRow(label: "Apple Music API", status: "MusicKit", color: .green)
-                StatusInfoRow(label: "Animated Wallpapers", status: "Phase 3", color: .orange)
+                StatusInfoRow(label: "Spotify Canvas",        status: "Planned (Phase 3)", color: .orange)
+                StatusInfoRow(label: "Apple Music API",       status: "MusicKit",          color: .green)
+                StatusInfoRow(label: "Animated Wallpapers",   status: "Phase 3",           color: .orange)
             }
             .padding(.horizontal)
 
@@ -239,10 +226,8 @@ private struct ServiceRow: View {
             Spacer()
             if isConnected {
                 Label("Connected", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.system(size: 12))
-                Button("Disconnect") { onDisconnect() }
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.green).font(.system(size: 12))
+                Button("Disconnect") { onDisconnect() }.foregroundStyle(.red)
             } else {
                 Button("Connect") { onConnect() }
             }
