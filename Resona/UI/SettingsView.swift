@@ -15,7 +15,7 @@ struct SettingsView: View {
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 480, height: 360)
+        .frame(width: 520, height: 440)
     }
 }
 
@@ -177,6 +177,28 @@ private struct AdvancedTab: View {
                 }
                 .foregroundStyle(.secondary)
             }
+
+            Section("Spotify Canvas (Animated Videos)") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("To enable animated video wallpapers, paste your Spotify sp_dc cookie below.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        SecureField("sp_dc cookie", text: $settings.spotifySpDcCookie)
+                            .textFieldStyle(.roundedBorder)
+
+                        Button("?") {
+                            NSWorkspace.shared.open(URL(string: "https://github.com/Paxsenix0/Spotify-Canvas-API#3-set-required-environment-variable")!)
+                        }
+                        .help("How to get your sp_dc cookie")
+                    }
+
+                    Text("Open Spotify Web Player in your browser → DevTools (F12) → Application → Cookies → find sp_dc")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
         .formStyle(.grouped)
         .padding()
@@ -198,9 +220,9 @@ private struct AboutTab: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 8) {
-                StatusInfoRow(label: "Spotify Canvas",        status: "Planned (Phase 3)", color: .orange)
-                StatusInfoRow(label: "Apple Music API",       status: "MusicKit",          color: .green)
-                StatusInfoRow(label: "Animated Wallpapers",   status: "Phase 3",           color: .orange)
+                StatusInfoRow(label: "Spotify Canvas",        status: "Active (sp_dc required)", color: .green)
+                StatusInfoRow(label: "Apple Music API",       status: "MusicKit",                color: .green)
+                StatusInfoRow(label: "Animated Wallpapers",   status: "Active",                  color: .green)
             }
             .padding(.horizontal)
 

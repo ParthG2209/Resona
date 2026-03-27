@@ -142,13 +142,12 @@ struct MenuBarView: View {
 
     private var footerSection: some View {
         HStack {
-            Button("Settings") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                NSApp.activate(ignoringOtherApps: true)
+            SettingsLink {
+                Text("Settings")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .font(.system(size: 12))
 
             Spacer()
 

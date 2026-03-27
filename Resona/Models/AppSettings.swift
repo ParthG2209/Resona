@@ -66,6 +66,11 @@ final class AppSettings: ObservableObject {
 
     @UserDefault("appleMusicConnected", defaultValue: false)
     var appleMusicConnected: Bool
+
+    // MARK: - Canvas Auth (sp_dc cookie for internal Spotify API)
+
+    @UserDefault("spotifySpDcCookie", defaultValue: "")
+    var spotifySpDcCookie: String
 }
 
 // MARK: - Supporting Enums

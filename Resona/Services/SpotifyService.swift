@@ -431,7 +431,33 @@ final class SpotifyService: ObservableObject {
             artworkURL: artworkURL, canvasURL: nil,
             durationMs: durationMs, progressMs: progressMs, source: .spotify
         )
-        if track != currentTrack { scheduleTrackUpdate(track) }
+
+        // Only proceed if this is a new track
+        guard track != currentTrack else { return }
+
+        // Try to fetch Spotify Canvas (animated video) for this track
+        if AppSettings.shared.showAnimatedWallpapers, let token = accessToken {
+            SpotifyCanvasService.shared.fetchCanvasURL(trackID: id, accessToken: token) { [weak self] canvasURL in
+                guard let self else { return }
+                let finalTrack: Track
+                if let canvasURL {
+                    // Create a new Track with the Canvas URL
+                    finalTrack = Track(
+                        id: id, name: name, artist: artists, album: albumName,
+                        artworkURL: artworkURL, canvasURL: canvasURL,
+                        durationMs: durationMs, progressMs: progressMs, source: .spotify
+                    )
+                    print("[Resona] Canvas URL attached for \(name)")
+                } else {
+                    finalTrack = track
+                }
+                DispatchQueue.main.async {
+                    self.scheduleTrackUpdate(finalTrack)
+                }
+            }
+        } else {
+            scheduleTrackUpdate(track)
+        }
     }
 
     private func handleNothingPlaying() {

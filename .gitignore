@@ -31,3 +31,6 @@ build/
 *.dSYM
 *.dSYM.zip
 *.hmap
+
+# Ignored Folders
+public/
