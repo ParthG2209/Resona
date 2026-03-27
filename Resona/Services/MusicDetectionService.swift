@@ -37,7 +37,7 @@ final class MusicDetectionService: ObservableObject {
             spotify.startPolling()
         }
         if AppSettings.shared.appleMusicConnected {
-            Task { await appleMusic.startMonitoring() }
+            appleMusic.startMonitoring()
         }
     }
 
