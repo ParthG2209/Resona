@@ -5,7 +5,8 @@ import SwiftUI
 struct MenuBarView: View {
 
     @ObservedObject var detectionService: MusicDetectionService
-    @State private var showSettings = false
+    @State private var spotifyConnecting = false
+    @State private var appleMusicConnecting = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +42,6 @@ struct MenuBarView: View {
         Group {
             if let track = detectionService.activeTrack {
                 HStack(spacing: 12) {
-                    // Artwork thumbnail
                     AsyncImage(url: track.artworkURL) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
@@ -67,7 +67,6 @@ struct MenuBarView: View {
                     }
                     Spacer()
 
-                    // Source badge
                     Image(systemName: track.source == .spotify ? "dot.radiowaves.left.and.right" : "applelogo")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -91,12 +90,12 @@ struct MenuBarView: View {
 
     private var controlsSection: some View {
         HStack(spacing: 16) {
-            // Service toggles
             ServiceToggle(
                 label: "Spotify",
                 icon: "dot.radiowaves.left.and.right",
                 isConnected: detectionService.spotify.isAuthenticated,
-                onConnect: { detectionService.spotify.connect { _ in } },
+                isLoading: spotifyConnecting,
+                onConnect: connectSpotify,
                 onDisconnect: { detectionService.spotify.disconnect() }
             )
 
@@ -104,13 +103,13 @@ struct MenuBarView: View {
                 label: "Apple Music",
                 icon: "applelogo",
                 isConnected: detectionService.appleMusic.isAuthenticated,
-                onConnect: { Task { await detectionService.appleMusic.connect() } },
+                isLoading: appleMusicConnecting,
+                onConnect: connectAppleMusic,
                 onDisconnect: { detectionService.appleMusic.disconnect() }
             )
 
             Spacer()
 
-            // Animated indicator
             if let track = detectionService.activeTrack {
                 Label(
                     track.isAnimatedArtworkAvailable ? "Animated" : "Static",
@@ -127,23 +126,10 @@ struct MenuBarView: View {
 
     private var statusSection: some View {
         HStack(spacing: 8) {
-            // Spotify status
-            StatusDot(
-                label: "Spotify",
-                connected: detectionService.spotify.isAuthenticated
-            )
-
+            StatusDot(label: "Spotify",      connected: detectionService.spotify.isAuthenticated)
             Text("·").foregroundStyle(.tertiary)
-
-            // Apple Music status
-            StatusDot(
-                label: "Apple Music",
-                connected: detectionService.appleMusic.isAuthenticated
-            )
-
+            StatusDot(label: "Apple Music",  connected: detectionService.appleMusic.isAuthenticated)
             Spacer()
-
-            // Wallpaper type
             if detectionService.activeTrack != nil {
                 Text(AppSettings.shared.showAnimatedWallpapers ? "🎬 Animated" : "🖼 Static")
                     .font(.system(size: 10))
@@ -166,15 +152,39 @@ struct MenuBarView: View {
 
             Spacer()
 
-            Button("Quit Resona") {
-                NSApp.terminate(nil)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .font(.system(size: 12))
+            Button("Quit Resona") { NSApp.terminate(nil) }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    // MARK: - Connect Actions
+    // Dispatched to background to prevent freezing the UI while
+    // the system hands off the URL to the browser.
+
+    private func connectSpotify() {
+        spotifyConnecting = true
+        // connect() opens browser via NSWorkspace on main thread — call directly
+        // The callback fires when OAuth completes (could be minutes later)
+        detectionService.spotify.connect { result in
+            DispatchQueue.main.async {
+                spotifyConnecting = false
+                if case .failure(let e) = result {
+                    Logger.error("Spotify connect failed: \(e)", category: .spotify)
+                }
+            }
+        }
+    }
+
+    private func connectAppleMusic() {
+        appleMusicConnecting = true
+        Task {
+            await detectionService.appleMusic.connect()
+            appleMusicConnecting = false
+        }
     }
 }
 
@@ -184,26 +194,38 @@ private struct ServiceToggle: View {
     let label: String
     let icon: String
     let isConnected: Bool
+    let isLoading: Bool
     let onConnect: () -> Void
     let onDisconnect: () -> Void
 
     var body: some View {
         Button(action: isConnected ? onDisconnect : onConnect) {
             HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 10))
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: 10, height: 10)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 10))
+                }
                 Text(label)
                     .font(.system(size: 11))
-                Image(systemName: isConnected ? "checkmark.circle.fill" : "plus.circle")
-                    .font(.system(size: 10))
-                    .foregroundStyle(isConnected ? .green : .secondary)
+                if !isLoading {
+                    Image(systemName: isConnected ? "checkmark.circle.fill" : "plus.circle")
+                        .font(.system(size: 10))
+                        .foregroundStyle(isConnected ? .green : .secondary)
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(isConnected ? Color.green.opacity(0.1) : Color.secondary.opacity(0.1),
-                        in: Capsule())
+            .background(
+                isConnected ? Color.green.opacity(0.1) : Color.secondary.opacity(0.1),
+                in: Capsule()
+            )
         }
         .buttonStyle(.plain)
+        .disabled(isLoading)
     }
 }
 
