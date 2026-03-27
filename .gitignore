@@ -21,6 +21,7 @@ project.xcworkspace/xcuserdata/
 *.pem
 *.key
 Secrets.xcconfig
+Resona/Utilities/Constants.swift
 
 # Build output
 DerivedData/
