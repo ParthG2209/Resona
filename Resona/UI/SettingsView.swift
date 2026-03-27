@@ -47,7 +47,11 @@ private struct GeneralTab: View {
                 ServiceRow(
                     title: "Spotify",
                     isConnected: AppSettings.shared.spotifyConnected,
-                    onConnect: { SpotifyService.shared.connect { _ in } },
+                    onConnect: {
+                        Task.detached {
+                            SpotifyService.shared.connect { _ in }
+                        }
+                    },
                     onDisconnect: { SpotifyService.shared.disconnect() }
                 )
                 ServiceRow(
