@@ -291,6 +291,7 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
 
         struct V { float4 pos [[position]]; float2 uv; };
 
+        // Full-screen triangle (3 verts cover the whole screen — more efficient than a quad)
         vertex V fluidVertex(uint vid [[vertex_id]]) {
             V o;
             o.uv = float2((vid << 1) & 2, vid & 2);
@@ -327,107 +328,54 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
             return 130.0 * dot(m, g);
         }
 
-        // ── Fractional Brownian Motion (smooth multi-octave noise) ────
-        float fbm(float2 p, int octaves) {
-            float value = 0.0;
-            float amp = 0.5;
-            float2 shift = float2(100.0, 100.0);
-            float2x2 rot = float2x2(cos(0.5), sin(0.5), -sin(0.5), cos(0.5));
-            for (int i = 0; i < octaves; i++) {
-                value += amp * snoise(p);
-                p = rot * p * 2.0 + shift;
-                amp *= 0.5;
-            }
-            return value;
-        }
-
-        // ── Smooth cosine palette interpolation ──────────────────────
-        float4 blendColors(float t, float4 c0, float4 c1, float4 c2, float4 c3, float4 c4) {
-            t = clamp(t, 0.0, 1.0);
-            float seg = t * 4.0;
-            int idx = int(seg);
-            float f = fract(seg);
-            // Smooth cosine interpolation (way smoother than linear mix)
-            f = f * f * (3.0 - 2.0 * f);
-
-            float4 colors[5] = {c0, c1, c2, c3, c4};
-            int i0 = clamp(idx, 0, 4);
-            int i1 = clamp(idx + 1, 0, 4);
-            return mix(colors[i0], colors[i1], f);
-        }
-
-        // ── Fragment: premium fluid color waves ──────────────────────
+        // ── Fragment: fluid color waves ───────────────────────────────
         fragment float4 fluidFragment(V in [[stage_in]],
                                        constant Uniforms &u [[buffer(0)]]) {
             float2 uv = in.uv;
-            float t = u.time * u.speed;
+            float t = u.time * u.speed;   // controlled by Wave Intensity slider
 
             float aspect = u.resolution.x / u.resolution.y;
             float2 st = float2(uv.x * aspect, uv.y);
 
-            // ── Layer 1: Large-scale flowing blobs (background) ──────
-            // Triple domain warping for ultra-smooth organic shapes
-            float2 q = float2(
-                fbm(st * 0.7 + float2(t * 0.15, t * 0.12), 4),
-                fbm(st * 0.7 + float2(t * 0.1, -t * 0.14), 4)
-            );
+            // Domain warping — distort coordinates for fluid feel
+            float2 warp1 = float2(
+                snoise(st * 1.2 + float2(t*0.3, t*0.2)),
+                snoise(st * 1.2 + float2(t*0.2, -t*0.3))
+            ) * 0.18;
 
-            float2 r = float2(
-                fbm((st + q * 1.6) * 0.6 + float2(-t * 0.08, t * 0.1), 4),
-                fbm((st + q * 1.6) * 0.6 + float2(t * 0.12, t * 0.06), 4)
-            );
+            float2 warp2 = float2(
+                snoise((st + warp1) * 0.8 + float2(-t*0.15, t*0.1)),
+                snoise((st + warp1) * 0.8 + float2(t*0.1, t*0.15))
+            ) * 0.12;
 
-            float2 s = float2(
-                fbm((st + r * 1.2) * 0.8 + float2(t * 0.06, -t * 0.05), 3),
-                fbm((st + r * 1.2) * 0.8 + float2(-t * 0.07, t * 0.08), 3)
-            );
+            float2 warped = st + warp1 + warp2;
 
-            // Main flow field — combines all three warp passes
-            float flow1 = fbm((st + s * 0.9) * 0.5 + float2(t * 0.05), 5);
+            // Noise layers at different scales
+            float n1 = snoise(warped * 1.5  + float2(t*0.4,  t*0.25));
+            float n2 = snoise(warped * 2.2  + float2(-t*0.3, t*0.4));
+            float n3 = snoise(warped * 1.0  + float2(t*0.2, -t*0.35));
+            float n4 = snoise(warped * 2.8  + float2(-t*0.2, -t*0.15));
 
-            // ── Layer 2: Medium-scale detail (midground) ─────────────
-            float2 q2 = float2(
-                fbm(st * 1.2 + float2(t * 0.2, -t * 0.15) + 50.0, 3),
-                fbm(st * 1.2 + float2(-t * 0.18, t * 0.22) + 50.0, 3)
-            );
-            float flow2 = fbm((st + q2 * 0.8) * 1.0 + float2(-t * 0.1, t * 0.08) + 100.0, 4);
+            // Blend palette colors using noise
+            float4 c = u.color0;
+            c = mix(c, u.color1, smoothstep(-0.4, 0.4, n1));
+            c = mix(c, u.color2, smoothstep(-0.3, 0.5, n2) * 0.7);
+            c = mix(c, u.color3, smoothstep(-0.5, 0.3, n3) * 0.55);
+            c = mix(c, u.color4, smoothstep(-0.35, 0.35, n4) * 0.4);
 
-            // ── Layer 3: Fine shimmering detail (foreground) ─────────
-            float flow3 = fbm(st * 2.5 + float2(t * 0.3, t * 0.2) + 200.0, 3);
+            // Second warp pass for more fluid depth
+            float n5 = snoise((warped + warp2*2.0) * 1.8 + float2(t*0.35, t*0.15));
+            c = mix(c, u.color1*0.6 + u.color3*0.4, smoothstep(-0.2, 0.5, n5) * 0.3);
 
-            // ── Color mapping ────────────────────────────────────────
-            // Map flow values to [0,1] range for color blending
-            float colorIdx1 = flow1 * 0.5 + 0.5;
-            float colorIdx2 = flow2 * 0.5 + 0.5;
-
-            // Primary color from large blobs
-            float4 primary = blendColors(colorIdx1, u.color0, u.color1, u.color2, u.color3, u.color4);
-            // Secondary color from medium detail
-            float4 secondary = blendColors(colorIdx2, u.color2, u.color4, u.color0, u.color3, u.color1);
-
-            // Blend layers: primary dominates, secondary adds variety
-            float layerMix = smoothstep(-0.3, 0.3, flow3) * 0.4;
-            float4 c = mix(primary, secondary, layerMix);
-
-            // ── Ambient glow / bloom ─────────────────────────────────
-            // Soft radial bloom from warp intensity (brighter where flow converges)
-            float warpIntensity = length(s) * 0.3;
-            float4 bloom = blendColors(fract(colorIdx1 + 0.25), u.color1, u.color3, u.color0, u.color4, u.color2);
-            c = mix(c, bloom, warpIntensity * 0.2);
-
-            // ── Post-processing ──────────────────────────────────────
-            // Soft vignette (pow-based for smoother falloff)
+            // Vignette (built into shader — free)
             float2 vc = uv - 0.5;
-            float vig = 1.0 - pow(dot(vc, vc) * 1.8, 0.6);
-            c.rgb *= clamp(vig, 0.15, 1.0);
+            float vig = 1.0 - dot(vc, vc) * 0.65;
+            c.rgb *= vig;
 
-            // Subtle brightness boost for vibrancy
-            c.rgb *= 0.82;
+            // Slight dimming for wallpaper readability
+            c.rgb *= 0.72;
 
-            // Slight gamma for richer darks
-            c.rgb = pow(c.rgb, float3(0.95));
-
-            return float4(clamp(c.rgb, 0.0, 1.0), 1.0);
+            return float4(c.rgb, 1.0);
         }
         """
 
@@ -527,142 +475,119 @@ final class AnimatedArtworkView: NSView {
         overlay.layer?.addSublayer(art)
     }
 
-    // MARK: - Smart Color Extraction (Center-Weighted K-Means)
-
-    private struct HSBPixel {
-        var h: CGFloat; var s: CGFloat; var b: CGFloat; var weight: CGFloat
-    }
+    // MARK: - Hybrid Color Extraction (CIAreaAverage Grid + Distinct Selection)
+    //
+    // Step 1: Sample 10 regions via CIAreaAverage (3×3 grid + center crop)
+    // Step 2: Pick the 5 most visually distinct colors using RGB distance
+    // Step 3: Gently boost saturation for vibrant fluid rendering
+    // Step 4: diversifyIfNeeded as safety net for monochromatic covers
 
     private func extractPaletteColors(from cg: CGImage, count: Int) -> [NSColor] {
-        let sz = 60
-        guard let ctx = CGContext(data: nil, width: sz, height: sz,
-                                   bitsPerComponent: 8, bytesPerRow: sz * 4,
-                                   space: CGColorSpaceCreateDeviceRGB(),
-                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-              let data = ctx.data else {
-            return fallbackPalette()
-        }
-        ctx.interpolationQuality = .medium
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: sz, height: sz))
-        let ptr = data.bindMemory(to: UInt8.self, capacity: sz * sz * 4)
+        let ci = CIImage(cgImage: cg)
+        let ext = ci.extent
+        let ctx = CIContext()
 
-        var pixels: [HSBPixel] = []
-        pixels.reserveCapacity(sz * sz)
-        let center = CGFloat(sz) / 2.0
-
-        for y in 0..<sz {
-            for x in 0..<sz {
-                let i = y * sz + x
-                let r = CGFloat(ptr[i*4])   / 255.0
-                let g = CGFloat(ptr[i*4+1]) / 255.0
-                let bl = CGFloat(ptr[i*4+2]) / 255.0
-
-                let c = NSColor(red: r, green: g, blue: bl, alpha: 1)
-                var hh: CGFloat = 0, ss: CGFloat = 0, bb: CGFloat = 0, aa: CGFloat = 0
-                c.getHue(&hh, saturation: &ss, brightness: &bb, alpha: &aa)
-
-                // Center weight: center pixels get 3×, edges get 0.5×
-                let dx = (CGFloat(x) - center) / center
-                let dy = (CGFloat(y) - center) / center
-                let distFromCenter = sqrt(dx*dx + dy*dy)
-                let centerW = max(0.5, 3.0 - distFromCenter * 2.5)
-
-                // Soft color weight: de-prioritize backgrounds, don't remove them
-                var colorW: CGFloat = 1.0
-                if bb > 0.92 && ss < 0.10 { colorW = 0.05 }
-                else if bb < 0.06 { colorW = 0.1 }
-                else if ss < 0.05 && bb > 0.3 && bb < 0.7 { colorW = 0.15 }
-
-                let satBoost: CGFloat = 1.0 + ss * 0.5
-                pixels.append(HSBPixel(h: hh, s: ss, b: bb, weight: centerW * colorW * satBoost))
+        // 3×3 grid covers all spatial regions of the art
+        let cols = 3, rows = 3
+        let cellW = ext.width  / CGFloat(cols)
+        let cellH = ext.height / CGFloat(rows)
+        var regions: [CGRect] = []
+        for row in 0..<rows {
+            for col in 0..<cols {
+                regions.append(CGRect(x: ext.minX + CGFloat(col) * cellW,
+                                      y: ext.minY + CGFloat(row) * cellH,
+                                      width: cellW, height: cellH))
             }
         }
+        // Center crop (inner 50%) — captures the main subject
+        let centerCrop = CGRect(x: ext.minX + ext.width * 0.25,
+                                 y: ext.minY + ext.height * 0.25,
+                                 width: ext.width * 0.5, height: ext.height * 0.5)
+        regions.append(centerCrop)
 
-        guard pixels.count >= 10 else { return fallbackPalette() }
+        // Sample average color from each region
+        var sampled: [(r: CGFloat, g: CGFloat, b: CGFloat)] = []
+        for region in regions {
+            guard let f = CIFilter(name: "CIAreaAverage") else { continue }
+            f.setValue(ci, forKey: kCIInputImageKey)
+            f.setValue(CIVector(cgRect: region), forKey: "inputExtent")
+            guard let out = f.outputImage else { continue }
+            var px = [UInt8](repeating: 0, count: 4)
+            ctx.render(out, toBitmap: &px, rowBytes: 4,
+                       bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                       format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+            sampled.append((CGFloat(px[0])/255, CGFloat(px[1])/255, CGFloat(px[2])/255))
+        }
 
-        // K-Means++ init: pick highest-weight pixel first, then farthest-weighted
-        let k = count
-        var centroids: [HSBPixel] = []
-        centroids.append(pixels.max(by: { $0.weight < $1.weight })!)
-        for _ in 1..<k {
-            var bestDist: CGFloat = -1; var bestPx = pixels[0]
-            for px in pixels {
-                let minD = centroids.map {
-                    hsbDistance((px.h, px.s, px.b), ($0.h, $0.s, $0.b))
+        guard !sampled.isEmpty else {
+            return [.systemPurple, .systemBlue, .systemTeal, .systemIndigo, .systemPink]
+        }
+
+        // Pick the `count` most distinct colors using greedy farthest-first
+        var picked: [Int] = []
+
+        // Start with the center crop color (index 9) — it's the "subject"
+        let startIdx = sampled.count - 1
+        picked.append(startIdx)
+
+        while picked.count < min(count, sampled.count) {
+            var bestIdx = -1
+            var bestMinDist: CGFloat = -1
+            for (i, c) in sampled.enumerated() {
+                guard !picked.contains(i) else { continue }
+                // Min distance to any already-picked color
+                let minDist = picked.map { pi -> CGFloat in
+                    let p = sampled[pi]
+                    let dr = c.r - p.r, dg = c.g - p.g, db = c.b - p.b
+                    return dr*dr + dg*dg + db*db
                 }.min() ?? 0
-                if minD * px.weight > bestDist { bestDist = minD * px.weight; bestPx = px }
+                if minDist > bestMinDist { bestMinDist = minDist; bestIdx = i }
             }
-            centroids.append(bestPx)
+            if bestIdx >= 0 { picked.append(bestIdx) }
+            else { break }
         }
 
-        // Weighted K-Means (10 iterations)
-        var assignments = [Int](repeating: 0, count: pixels.count)
-        for _ in 0..<10 {
-            for (pi, px) in pixels.enumerated() {
-                var bestDist: CGFloat = .greatestFiniteMagnitude; var bestK = 0
-                for (ci, cent) in centroids.enumerated() {
-                    let dist = hsbDistance((px.h, px.s, px.b), (cent.h, cent.s, cent.b))
-                    if dist < bestDist { bestDist = dist; bestK = ci }
-                }
-                assignments[pi] = bestK
-            }
-            for ci in 0..<k {
-                var sinSum: CGFloat = 0, cosSum: CGFloat = 0
-                var sumS: CGFloat = 0, sumB: CGFloat = 0, totalW: CGFloat = 0
-                for (pi, px) in pixels.enumerated() where assignments[pi] == ci {
-                    let w = px.weight
-                    sinSum += sin(px.h * .pi * 2) * w
-                    cosSum += cos(px.h * .pi * 2) * w
-                    sumS += px.s * w; sumB += px.b * w; totalW += w
-                }
-                if totalW > 0 {
-                    let mh = atan2(sinSum, cosSum) / (.pi * 2)
-                    centroids[ci] = HSBPixel(h: mh < 0 ? mh + 1 : mh,
-                                             s: sumS / totalW, b: sumB / totalW, weight: totalW)
-                }
-            }
+        // Convert to NSColor with a gentle saturation boost
+        var colors: [NSColor] = picked.map { idx in
+            let c = sampled[idx]
+            let base = NSColor(red: c.r, green: c.g, blue: c.b, alpha: 1)
+            // Boost saturation ~20% for more vibrant fluids
+            guard let rgb = base.usingColorSpace(.deviceRGB) else { return base }
+            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            rgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+            return NSColor(hue: h, saturation: min(s * 1.2, 1.0), brightness: b, alpha: 1)
         }
 
-        // Rank clusters by total weight
-        struct Cluster { var c: HSBPixel; var w: CGFloat }
-        var clusters: [Cluster] = []
-        for ci in 0..<k {
-            var tw: CGFloat = 0
-            for (pi, px) in pixels.enumerated() where assignments[pi] == ci { tw += px.weight }
-            if tw > 0 { clusters.append(Cluster(c: centroids[ci], w: tw)) }
-        }
-        clusters.sort { $0.w > $1.w }
-
-        var result: [NSColor] = clusters.prefix(count).map {
-            NSColor(hue: $0.c.h, saturation: $0.c.s, brightness: $0.c.b, alpha: 1)
-        }
-        while result.count < count { result.append(result.last ?? .systemPurple) }
-        return diversifyIfNeeded(result)
+        // Pad if needed
+        while colors.count < count { colors.append(colors.last ?? .systemPurple) }
+        return diversifyIfNeeded(colors)
     }
 
-    private func hsbDistance(_ a: (h: CGFloat, s: CGFloat, b: CGFloat),
-                             _ b: (h: CGFloat, s: CGFloat, b: CGFloat)) -> CGFloat {
-        var dh = abs(a.h - b.h)
-        if dh > 0.5 { dh = 1.0 - dh }
-        return dh * dh * 4.0 + (a.s - b.s) * (a.s - b.s) + (a.b - b.b) * (a.b - b.b)
-    }
-
+    /// When all palette colors are too similar (monochromatic covers like MBDTF),
+    /// generate visible variations from the dominant hue.
     private func diversifyIfNeeded(_ colors: [NSColor]) -> [NSColor] {
         let hsbColors = colors.compactMap { $0.usingColorSpace(.deviceRGB) }
         guard let first = hsbColors.first else { return colors }
+
         var hues: [CGFloat] = [], brights: [CGFloat] = []
         for c in hsbColors {
             var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             c.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
             hues.append(h); brights.append(b)
         }
-        let hSpread = min((hues.max() ?? 0) - (hues.min() ?? 0),
-                          1.0 - ((hues.max() ?? 0) - (hues.min() ?? 0)))
-        let bSpread = (brights.max() ?? 0) - (brights.min() ?? 0)
-        if hSpread > 0.08 || bSpread > 0.15 { return colors }
 
+        let hueSpread = (hues.max() ?? 0) - (hues.min() ?? 0)
+        let brightSpread = (brights.max() ?? 0) - (brights.min() ?? 0)
+        let effectiveHueSpread = min(hueSpread, 1.0 - hueSpread)
+
+        if effectiveHueSpread > 0.08 || brightSpread > 0.15 {
+            return colors // Already diverse enough
+        }
+
+        // Monochromatic — build a rich palette from the dominant color
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         first.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+
         return [
             NSColor(hue: h, saturation: s, brightness: b, alpha: 1),
             NSColor(hue: fmod(h + 0.04, 1.0), saturation: max(s - 0.1, 0.2), brightness: min(b + 0.15, 1.0), alpha: 1),
@@ -670,10 +595,6 @@ final class AnimatedArtworkView: NSView {
             NSColor(hue: fmod(h + 0.08, 1.0), saturation: min(s + 0.1, 1.0), brightness: b, alpha: 1),
             NSColor(hue: h, saturation: max(s - 0.3, 0.05), brightness: min(b + 0.25, 1.0), alpha: 1),
         ]
-    }
-
-    private func fallbackPalette() -> [NSColor] {
-        [.systemPurple, .systemBlue, .systemTeal, .systemIndigo, .systemPink]
     }
 
     private func dominantColor(of cg: CGImage) -> NSColor {
