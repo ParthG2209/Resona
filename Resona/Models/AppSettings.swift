@@ -35,6 +35,10 @@ final class AppSettings: ObservableObject {
     @UserDefault("dimOnIdle", defaultValue: false)
     var dimOnIdle: Bool
 
+    /// Controls how fast/strong the fluid waves move (0 = still, 1 = full speed)
+    @UserDefault("waveIntensity", defaultValue: 0.5)
+    var waveIntensity: Double
+
     // MARK: - Advanced
 
     @UserDefault("clearCacheOnQuit", defaultValue: false)
