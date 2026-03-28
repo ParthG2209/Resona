@@ -89,6 +89,18 @@ private struct AppearanceTab: View {
                         Text(behavior.displayName).tag(behavior)
                     }
                 }
+
+                HStack {
+                    Text("Wave Intensity")
+                    Spacer()
+                    Slider(value: $settings.waveIntensity, in: 0...1, step: 0.05)
+                        .frame(width: 160)
+                    Text(waveLabel(settings.waveIntensity))
+                        .frame(width: 60, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                }
+                .help("Controls how fast/strong the fluid background waves move")
             }
 
             Section("Default Wallpaper") {
@@ -122,6 +134,16 @@ private struct AppearanceTab: View {
     private func saveCurrentWallpaper() {
         if let url = NSWorkspace.shared.desktopImageURL(for: NSScreen.main!) {
             AppSettings.shared.defaultWallpaperURL = url
+        }
+    }
+
+    private func waveLabel(_ value: Double) -> String {
+        switch value {
+        case 0:           return "Still"
+        case 0.01...0.25: return "Gentle"
+        case 0.26...0.50: return "Moderate"
+        case 0.51...0.75: return "Lively"
+        default:          return "Intense"
         }
     }
 }
