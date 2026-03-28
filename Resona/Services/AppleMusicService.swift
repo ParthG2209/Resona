@@ -1,6 +1,6 @@
 import Foundation
-import MusicKit
 import Combine
+import AppKit
 
 @MainActor
 final class AppleMusicService: ObservableObject {
@@ -17,19 +17,40 @@ final class AppleMusicService: ObservableObject {
     private var lastSeenTrackID: String?
     private var nowPlayingObserver: NSObjectProtocol?
 
-    // MARK: - Authorization
+    // MARK: - Authorization (AppleScript-based — no MusicKit needed)
 
     func connect() async {
-        let status = await MusicAuthorization.request()
-        switch status {
-        case .authorized:
-            isAuthenticated = true
-            AppSettings.shared.appleMusicConnected = true
-            startMonitoring()
-        case .denied, .restricted:
-            isAuthenticated = false
-        default:
-            break
+        Logger.info("🎵 Apple Music: connect() called", category: .appleMusic)
+
+        // Mark as connected — notification listener works even if Music isn't running yet
+        isAuthenticated = true
+        AppSettings.shared.appleMusicConnected = true
+        startMonitoring()
+
+        // Notify MusicDetectionService so it knows we're active
+        MusicDetectionService.shared.appleMusicConnectionChanged()
+
+        // Try a lightweight test against Music.app to trigger the automation permission dialog
+        // This will show "Resona wants to control Music" prompt on first run
+        DispatchQueue.global(qos: .utility).async {
+            let testScript = """
+            tell application "Music"
+                if it is running then
+                    return "running"
+                else
+                    return "not running"
+                end if
+            end tell
+            """
+            if let result = self.runAppleScript(testScript) {
+                DispatchQueue.main.async {
+                    Logger.info("🎵 Apple Music: Music.app is \(result)", category: .appleMusic)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    Logger.info("🎵 Apple Music: AppleScript test failed — check System Settings > Privacy > Automation", category: .appleMusic)
+                }
+            }
         }
     }
 
@@ -39,24 +60,24 @@ final class AppleMusicService: ObservableObject {
         playbackState = .stopped
         isAuthenticated = false
         AppSettings.shared.appleMusicConnected = false
-        KeychainManager.delete(forKey: Constants.AppleMusic.Keychain.userToken)
     }
 
     // MARK: - Monitoring
-    // Music.app posts "com.apple.Music.playerInfo" via DistributedNotificationCenter
-    // whenever the track changes — this is the only reliable macOS approach.
+    // Two approaches run in parallel:
+    // 1. DistributedNotificationCenter — instant but can miss events
+    // 2. AppleScript polling every 2s — reliable fallback
 
     func startMonitoring() {
         stopMonitoring()
+        Logger.info("Apple Music: startMonitoring called", category: .appleMusic)
 
-        // Capture just the name and userInfo — both are Sendable
+        // Approach 1: Notification listener (instant when it works)
         nowPlayingObserver = DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.Music.playerInfo"),
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            // Convert [AnyHashable: Any] → [String: Any] here, before the Task boundary.
-            // [String: Any] is Sendable-safe; [AnyHashable: Any] is not.
+            Logger.info("Apple Music: Received distributed notification!", category: .appleMusic)
             var info: [String: Any] = [:]
             notification.userInfo?.forEach { key, value in
                 if let strKey = key as? String { info[strKey] = value }
@@ -66,11 +87,16 @@ final class AppleMusicService: ObservableObject {
             }
         }
 
-        // Poll every 2s as a fallback in case a notification is missed
+        // Approach 2: AppleScript poll every 2s (reliable fallback)
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.pollFallback()
+                self?.pollViaAppleScript()
             }
+        }
+
+        // Also poll immediately on start
+        Task { @MainActor in
+            pollViaAppleScript()
         }
     }
 
@@ -89,6 +115,8 @@ final class AppleMusicService: ObservableObject {
         let info = userInfo
 
         let state = info["Player State"] as? String ?? ""
+        Logger.info("Apple Music notification: state=\(state)", category: .appleMusic)
+
         switch state {
         case "Playing":  playbackState = .playing
         case "Paused":   playbackState = .paused;   return
@@ -104,13 +132,98 @@ final class AppleMusicService: ObservableObject {
         else { return }
 
         let album   = info["Album"] as? String ?? "Unknown Album"
-        let trackID = "\(name)-\(artist)"
+        processTrackChange(name: name, artist: artist, album: album)
+    }
 
+    // MARK: - AppleScript Poll (Reliable Fallback)
+
+    private var pollCount = 0
+
+    private func pollViaAppleScript() {
+        pollCount += 1
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let script = """
+            tell application "Music"
+                if it is running then
+                    try
+                        set playerState to (player state as text)
+                        if playerState is "playing" then
+                            set trackName to name of current track
+                            set trackArtist to artist of current track
+                            set trackAlbum to album of current track
+                            return trackName & "|||" & trackArtist & "|||" & trackAlbum
+                        else
+                            return "STATE:" & playerState
+                        end if
+                    on error errMsg
+                        return "ERROR:" & errMsg
+                    end try
+                else
+                    return "NOT_RUNNING"
+                end if
+            end tell
+            """
+
+            guard let result = self?.runAppleScript(script) else {
+                if let self = self, self.pollCount % 15 == 0 {
+                    DispatchQueue.main.async {
+                        Logger.info("Apple Music poll: AppleScript returned nil (count: \(self.pollCount))", category: .appleMusic)
+                    }
+                }
+                return
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+
+                if result.starts(with: "NOT_RUNNING") {
+                    if self.pollCount % 15 == 0 {
+                        Logger.info("Apple Music poll: Music.app not running (count: \(self.pollCount))", category: .appleMusic)
+                    }
+                    return
+                }
+
+                if result.starts(with: "STATE:") {
+                    let state = String(result.dropFirst(6))
+                    if state == "paused" && self.playbackState != .paused {
+                        self.playbackState = .paused
+                    } else if state == "stopped" && self.playbackState != .stopped {
+                        self.playbackState = .stopped
+                        NotificationCenter.default.post(name: .playbackStateDidChange, object: PlaybackState.stopped)
+                    }
+                    return
+                }
+
+                if result.starts(with: "ERROR:") {
+                    if self.pollCount % 15 == 0 {
+                        Logger.info("Apple Music poll error: \(result)", category: .appleMusic)
+                    }
+                    return
+                }
+
+                // Parse "name|||artist|||album"
+                let parts = result.components(separatedBy: "|||")
+                guard parts.count >= 3 else { return }
+                let name = parts[0], artist = parts[1], album = parts[2]
+
+                self.playbackState = .playing
+                self.processTrackChange(name: name, artist: artist, album: album)
+            }
+        }
+    }
+
+    // MARK: - Process Track Change (shared by both notification + poll)
+
+    private func processTrackChange(name: String, artist: String, album: String) {
+        let trackID = "\(name)-\(artist)"
         guard trackID != lastSeenTrackID else { return }
         lastSeenTrackID = trackID
 
+        Logger.info("Apple Music: New track → \(name) – \(artist) [\(album)]", category: .appleMusic)
+
         Task {
-            let artworkURL = await fetchArtworkURL(title: name, artist: artist)
+            let artworkURL = await fetchArtworkViaAppleScript(title: name, artist: artist)
             let track = Track(
                 id:         trackID,
                 name:       name,
@@ -126,28 +239,62 @@ final class AppleMusicService: ObservableObject {
         }
     }
 
-    private func pollFallback() {
-        // Nothing to do if already tracking a song — just keeps the timer alive
-        // in case Music.app was launched after monitoring started
-        guard currentTrack == nil, playbackState == .playing else { return }
-        Logger.info("Apple Music poll fallback fired", category: .appleMusic)
+    // MARK: - AppleScript Artwork Fetch (No MusicKit / No $99 Required)
+    //
+    // Queries Music.app directly for the current track's artwork data.
+    // The artwork is saved to a temp file and returned as a file URL.
+    // This works for both Apple Music streaming tracks and local library tracks.
+
+    private func fetchArtworkViaAppleScript(title: String, artist: String) async -> URL? {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let tempPath = NSTemporaryDirectory() + "resona_artwork_\(UUID().uuidString).jpg"
+
+                // AppleScript to get artwork from the currently playing track
+                let script = """
+                tell application "Music"
+                    if it is running then
+                        try
+                            set currentTrack to current track
+                            set artworkData to raw data of artwork 1 of currentTrack
+                            set artFile to POSIX file "\(tempPath)"
+                            set fileRef to open for access artFile with write permission
+                            write artworkData to fileRef
+                            close access fileRef
+                            return "\(tempPath)"
+                        on error
+                            return ""
+                        end try
+                    end if
+                end tell
+                """
+
+                if let result = self.runAppleScript(script), !result.isEmpty {
+                    let url = URL(fileURLWithPath: result)
+                    if FileManager.default.fileExists(atPath: result) {
+                        continuation.resume(returning: url)
+                    } else {
+                        continuation.resume(returning: nil)
+                    }
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
-    // MARK: - MusicKit Artwork Lookup
+    // MARK: - AppleScript Helper
 
-    private func fetchArtworkURL(title: String, artist: String) async -> URL? {
-        do {
-            var request = MusicCatalogSearchRequest(term: "\(title) \(artist)", types: [Song.self])
-            request.limit = 1
-            let response = try await request.response()
-            return response.songs.first?.artwork?.url(
-                width:  Constants.Wallpaper.preferredArtworkSize,
-                height: Constants.Wallpaper.preferredArtworkSize
-            )
-        } catch {
-            Logger.error("MusicKit artwork lookup failed: \(error)", category: .appleMusic)
+    @discardableResult
+    private func runAppleScript(_ source: String) -> String? {
+        var error: NSDictionary?
+        guard let script = NSAppleScript(source: source) else { return nil }
+        let result = script.executeAndReturnError(&error)
+        if let error = error {
+            Logger.error("AppleScript error: \(error)", category: .appleMusic)
             return nil
         }
+        return result.stringValue
     }
 
     // MARK: - Debounce
