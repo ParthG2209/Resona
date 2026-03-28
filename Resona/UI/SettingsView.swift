@@ -243,7 +243,7 @@ private struct AboutTab: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 StatusInfoRow(label: "Spotify Canvas",        status: "Active (sp_dc required)", color: .green)
-                StatusInfoRow(label: "Apple Music API",       status: "MusicKit",                color: .green)
+                StatusInfoRow(label: "Apple Music API",       status: "AppleScript",              color: .green)
                 StatusInfoRow(label: "Animated Wallpapers",   status: "Active",                  color: .green)
             }
             .padding(.horizontal)
