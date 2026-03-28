@@ -33,11 +33,22 @@ final class MusicDetectionService: ObservableObject {
     // MARK: - Lifecycle
 
     func startMonitoring() {
+        Logger.info("MusicDetection: startMonitoring — spotify=\(AppSettings.shared.spotifyConnected), appleMusic=\(AppSettings.shared.appleMusicConnected)", category: .general)
         if AppSettings.shared.spotifyConnected {
             spotify.startPolling()
         }
         if AppSettings.shared.appleMusicConnected {
             appleMusic.startMonitoring()
+        }
+    }
+
+    /// Call this when Apple Music connection state changes mid-session
+    func appleMusicConnectionChanged() {
+        if AppSettings.shared.appleMusicConnected {
+            Logger.info("MusicDetection: Apple Music connected mid-session, starting monitoring", category: .general)
+            appleMusic.startMonitoring()
+        } else {
+            appleMusic.stopMonitoring()
         }
     }
 
