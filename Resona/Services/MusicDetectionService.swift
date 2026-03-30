@@ -33,13 +33,16 @@ final class MusicDetectionService: ObservableObject {
     // MARK: - Lifecycle
 
     func startMonitoring() {
-        Logger.info("MusicDetection: startMonitoring — spotify=\(AppSettings.shared.spotifyConnected), appleMusic=\(AppSettings.shared.appleMusicConnected)", category: .general)
+        print("[Resona] MusicDetection: startMonitoring — spotify=\(AppSettings.shared.spotifyConnected), appleMusic=\(AppSettings.shared.appleMusicConnected)")
+
         if AppSettings.shared.spotifyConnected {
             spotify.startPolling()
         }
-        if AppSettings.shared.appleMusicConnected {
-            appleMusic.startMonitoring()
-        }
+
+        // Apple Music uses local AppleScript + notifications — no auth needed.
+        // Always start monitoring regardless of appleMusicConnected flag.
+        print("[Resona] Starting Apple Music monitoring (always-on, no auth required)")
+        appleMusic.startMonitoring()
     }
 
     /// Call this when Apple Music connection state changes mid-session
