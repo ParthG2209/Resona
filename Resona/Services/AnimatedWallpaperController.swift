@@ -19,6 +19,10 @@ import MetalKit
 ///    average is computed once and reused instead of running a separate CIFilter pass.
 /// 5. Internal render resolution is 50% of native Retina — Metal upscales smoothly.
 ///    Fluid gradients are mathematically smooth so this is visually identical.
+/// 6. CABasicAnimation pulse on the glow layer is explicitly stopped on dismiss().
+///    CoreAnimation was previously ticking this animation on layers that had already
+///    been removed from the screen, doing invisible work until the next render cycle
+///    cleaned them up. removeAllAnimations() is called before the layer is discarded.
 
 final class AnimatedWallpaperController {
 
@@ -45,7 +49,6 @@ final class AnimatedWallpaperController {
         isShowing = true
 
         if canvasURL != nil {
-            // Canvas path — rebuild the video layer (unavoidable, new stream)
             dismissImmediate()
             for screen in NSScreen.screens {
                 let win = makeDesktopWindow(for: screen)
@@ -59,7 +62,6 @@ final class AnimatedWallpaperController {
                 windows.append(win)
             }
         } else if windows.isEmpty || artViews.isEmpty {
-            // First launch or after a canvas was showing — build Metal views fresh.
             dismissImmediate()
             for screen in NSScreen.screens {
                 let win = makeDesktopWindow(for: screen)
@@ -75,17 +77,11 @@ final class AnimatedWallpaperController {
                 }
                 windows.append(win)
             }
-            // Now configure with the initial artwork (builds layers + starts extraction)
             for (i, artView) in artViews.enumerated() {
                 let screen = NSScreen.screens[safe: i] ?? NSScreen.main ?? NSScreen.screens[0]
                 artView.configure(with: artworkImage, scale: screen.backingScaleFactor)
             }
         } else {
-            // *** THE KEY THERMAL FIX ***
-            // Metal views already exist and are rendering. Do NOT tear them down.
-            // Just update the artwork image and kick off a background color extraction.
-            // The FluidWaveView keeps rendering at 60fps with the old palette until
-            // the new palette is ready, then smoothly switches. Zero GPU spike.
             for (i, artView) in artViews.enumerated() {
                 let screen = NSScreen.screens[safe: i] ?? NSScreen.main ?? NSScreen.screens[0]
                 artView.configure(with: artworkImage, scale: screen.backingScaleFactor)
@@ -97,8 +93,17 @@ final class AnimatedWallpaperController {
         guard isShowing else { return }
         isShowing = false
         currentTrackID = nil
-        artViews.removeAll()
         queuePlayer?.pause(); queuePlayer = nil; playerLooper = nil
+
+        // Stop all CABasicAnimation loops on every art view before discarding them.
+        // The glow pulse and any other animations running on sublayers are explicitly
+        // removed here so CoreAnimation stops ticking them immediately. Without this,
+        // CA continues animating layers for one more render cycle after they've been
+        // removed from the view hierarchy, wasting work the user never sees.
+        for artView in artViews {
+            artView.stopAllAnimations()
+        }
+        artViews.removeAll()
 
         let old = windows; windows = []
         NSAnimationContext.runAnimationGroup({ ctx in
@@ -112,6 +117,10 @@ final class AnimatedWallpaperController {
     // MARK: - Private
 
     private func dismissImmediate() {
+        // Stop animations before discarding art views — same reasoning as dismiss().
+        for artView in artViews {
+            artView.stopAllAnimations()
+        }
         artViews.removeAll()
         queuePlayer?.pause(); queuePlayer = nil; playerLooper = nil
         windows.forEach { $0.orderOut(nil) }
@@ -199,7 +208,6 @@ private extension Array {
 final class FluidWaveView: MTKView, MTKViewDelegate {
 
     // Cached across ALL instances — shader compiled exactly once per app lifetime.
-    // Previously this was recreated on every song change, causing a GPU pipeline spike.
     private static var cachedPipeline: MTLRenderPipelineState?
     private static var cachedQueue: MTLCommandQueue?
 
@@ -209,9 +217,6 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
     private var palette: [SIMD4<Float>] = Array(repeating: SIMD4<Float>(0.12, 0.08, 0.2, 1), count: 5)
 
     /// Internal render scale — 0.5 means the shader runs at 50% of native Retina resolution.
-    /// Metal's hardware sampler upscales to the full display seamlessly.
-    /// Fluid gradients are mathematically smooth so this looks identical at any scale.
-    /// This alone cuts GPU fill-rate work by 4× (from ~16M pixels to ~4M on a 2x display).
     private let internalScale: CGFloat = 0.5
 
     struct Uniforms {
@@ -225,7 +230,6 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
         var color4: SIMD4<Float>
     }
 
-    /// Factory method — returns nil if Metal is unavailable.
     static func create(frame: NSRect) -> FluidWaveView? {
         guard let device = MTLCreateSystemDefaultDevice() else {
             print("[Resona] Metal not available")
@@ -236,7 +240,6 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
         let queue: MTLCommandQueue
 
         if let cached = cachedPipeline, let cq = cachedQueue {
-            // Reuse the already-compiled pipeline — critical for song-change perf.
             pipeline = cached
             queue = cq
         } else {
@@ -277,8 +280,6 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
         colorPixelFormat = .bgra8Unorm
         startTime = CFAbsoluteTimeGetCurrent()
 
-        // Apply internal resolution scaling at init and keep it locked.
-        // This is the primary GPU thermal fix: 4x fewer pixels to shade per frame.
         if let layer = self.layer as? CAMetalLayer {
             layer.contentsScale = (NSScreen.main?.backingScaleFactor ?? 2.0) * internalScale
         }
@@ -286,8 +287,6 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
 
     required init(coder: NSCoder) { fatalError() }
 
-    /// Called when a new song's palette is ready (from background thread extraction).
-    /// This is a lightweight SIMD copy — no GPU reinitialization, zero spike.
     func updateColors(from nsColors: [NSColor]) {
         palette = nsColors.prefix(5).map { c -> SIMD4<Float> in
             guard let rgb = c.usingColorSpace(.deviceRGB) else { return SIMD4<Float>(0.5, 0.5, 0.5, 1) }
@@ -350,7 +349,6 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
 
         struct V { float4 pos [[position]]; float2 uv; };
 
-        // Full-screen triangle — more efficient than a quad (3 verts vs 6)
         vertex V fluidVertex(uint vid [[vertex_id]]) {
             V o;
             o.uv = float2((vid << 1) & 2, vid & 2);
@@ -359,7 +357,6 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
             return o;
         }
 
-        // ── Simplex 2D noise ──────────────────────────────────────────
         float3 mod289(float3 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
         float2 mod289(float2 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
         float3 permute(float3 x) { return mod289(((x*34.0)+1.0)*x); }
@@ -387,7 +384,6 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
             return 130.0 * dot(m, g);
         }
 
-        // ── Fragment: fluid color waves ───────────────────────────────
         fragment float4 fluidFragment(V in [[stage_in]],
                                        constant Uniforms &u [[buffer(0)]]) {
             float2 uv = in.uv;
@@ -396,7 +392,6 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
             float aspect = u.resolution.x / u.resolution.y;
             float2 st = float2(uv.x * aspect, uv.y);
 
-            // Domain warping — distort coordinates for fluid feel
             float2 warp1 = float2(
                 snoise(st * 1.2 + float2(t*0.3, t*0.2)),
                 snoise(st * 1.2 + float2(t*0.2, -t*0.3))
@@ -409,24 +404,20 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
 
             float2 warped = st + warp1 + warp2;
 
-            // Noise layers at different scales
             float n1 = snoise(warped * 1.5  + float2(t*0.4,  t*0.25));
             float n2 = snoise(warped * 2.2  + float2(-t*0.3, t*0.4));
             float n3 = snoise(warped * 1.0  + float2(t*0.2, -t*0.35));
             float n4 = snoise(warped * 2.8  + float2(-t*0.2, -t*0.15));
 
-            // Blend palette colors using noise
             float4 c = u.color0;
             c = mix(c, u.color1, smoothstep(-0.4, 0.4, n1));
             c = mix(c, u.color2, smoothstep(-0.3, 0.5, n2) * 0.7);
             c = mix(c, u.color3, smoothstep(-0.5, 0.3, n3) * 0.55);
             c = mix(c, u.color4, smoothstep(-0.35, 0.35, n4) * 0.4);
 
-            // Second warp pass for more fluid depth
             float n5 = snoise((warped + warp2*2.0) * 1.8 + float2(t*0.35, t*0.15));
             c = mix(c, u.color1*0.6 + u.color3*0.4, smoothstep(-0.2, 0.5, n5) * 0.3);
 
-            // Vignette (built into shader — free, no extra pass)
             float2 vc = uv - 0.5;
             float vig = 1.0 - dot(vc, vc) * 0.65;
             c.rgb *= vig;
@@ -450,14 +441,13 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
 
 final class AnimatedArtworkView: NSView {
 
-    // ── THERMAL FIX 2: Single CIContext shared across ALL instances and ALL song changes.
-    // CIContext allocation creates GPU command queues — doing this per-song-change
-    // was causing a measurable CPU/GPU spike. One context lives for the app lifetime.
+    // Single CIContext shared across ALL instances and ALL song changes.
     private static let sharedCIContext = CIContext(options: [.useSoftwareRenderer: false])
 
-    // Keep a weak reference so the controller can update colors between songs
-    // without rebuilding the view hierarchy.
     private(set) weak var fluidView: FluidWaveView?
+
+    // Stored so stopAllAnimations() can reach them from AnimatedWallpaperController.dismiss().
+    private var glowLayer: CAGradientLayer?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -466,41 +456,43 @@ final class AnimatedArtworkView: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    // MARK: - Public: stop CA animations before this view is discarded
+    //
+    // Called by AnimatedWallpaperController before artViews.removeAll() on both
+    // dismiss() and dismissImmediate(). Removes the glow pulse animation so
+    // CoreAnimation stops ticking it immediately rather than on the next render cycle.
+    // Has zero effect on the running shader — FluidWaveView is an MTKView driven by
+    // CADisplayLink, not CoreAnimation, so removeAllAnimations() does not touch it.
+    func stopAllAnimations() {
+        glowLayer?.removeAllAnimations()
+        // Also walk all CA sublayers of the overlay view for completeness
+        if subviews.count >= 2 {
+            subviews[1].layer?.sublayers?.forEach { $0.removeAllAnimations() }
+        }
+    }
+
     /// Called both on first show AND on subsequent song changes.
-    /// On first call: builds the full layer stack including the Metal fluid view.
-    /// On subsequent calls: updates only the artwork CALayer and kicks off a
-    /// background color extraction — the FluidWaveView is NEVER torn down.
     func configure(with image: NSImage, scale: CGFloat) {
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
 
         if fluidView == nil {
-            // First configuration — build the full stack
             buildFullStack(cg: cg, scale: scale)
         } else {
-            // Subsequent song change — only swap the artwork, keep Metal alive
             updateArtworkOnly(cg: cg, scale: scale)
         }
 
-        // ── THERMAL FIX 3: Color extraction runs on a BACKGROUND THREAD.
-        // The 10× CIAreaAverage calls previously ran on the main thread during
-        // song transitions, causing a synchronous CPU+GPU burst that spiked temps.
-        // Now the FluidWaveView keeps animating with the current palette while
-        // the new palette is computed quietly in the background.
         let capturedFluid = fluidView
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let (palette, dominant) = self.extractPaletteAndDominant(from: cg, count: 5)
             DispatchQueue.main.async {
                 capturedFluid?.updateColors(from: palette)
-                // Update the glow color without rebuilding the layer
                 self.updateGlowColor(dominant, in: self.bounds)
             }
         }
     }
 
     // MARK: - Private: Full Initial Build
-
-    private var glowLayer: CAGradientLayer?
 
     private func buildFullStack(cg: CGImage, scale: CGFloat) {
         subviews.forEach { $0.removeFromSuperview() }
@@ -512,15 +504,13 @@ final class AnimatedArtworkView: NSView {
                               width: artSize, height: artSize)
         let corner = artSize * 0.06
 
-        // ── 1. Fluid wave background (Metal GPU shader) ────────────────
+        // 1. Fluid wave background (Metal GPU shader)
         if let fluid = FluidWaveView.create(frame: bounds) {
-            // Start with neutral palette — background extraction will update it shortly
             fluid.updateColors(from: [.systemPurple, .systemBlue, .systemTeal, .systemIndigo, .systemPink])
             fluid.autoresizingMask = [.width, .height]
             addSubview(fluid)
             fluidView = fluid
         } else {
-            // Fallback: static blurred background when Metal unavailable
             let bg = CALayer()
             bg.frame = bounds
             bg.contents = blurredImage(cg)
@@ -529,14 +519,14 @@ final class AnimatedArtworkView: NSView {
             layer?.addSublayer(bg)
         }
 
-        // ── 2. Transparent overlay (sits above FluidWaveView) ─────────
+        // 2. Transparent overlay (sits above FluidWaveView)
         let overlay = NSView(frame: bounds)
         overlay.wantsLayer = true
         overlay.layer?.backgroundColor = NSColor.clear.cgColor
         overlay.autoresizingMask = [.width, .height]
         addSubview(overlay)
 
-        // ── 3. Ambient glow behind artwork (placeholder color — updated async) ─
+        // 3. Ambient glow behind artwork
         let glow = CAGradientLayer()
         glow.type = .radial
         glow.frame = artFrame.insetBy(dx: -artSize * 0.45, dy: -artSize * 0.45)
@@ -554,7 +544,7 @@ final class AnimatedArtworkView: NSView {
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         glow.add(pulse, forKey: "glowPulse")
 
-        // ── 4. Shadow beneath artwork ──────────────────────────────────
+        // 4. Shadow beneath artwork
         let shadow = CALayer()
         shadow.frame = artFrame
         shadow.cornerRadius = corner
@@ -564,7 +554,7 @@ final class AnimatedArtworkView: NSView {
         shadow.shadowRadius = 30; shadow.shadowOpacity = 0.85
         overlay.layer?.addSublayer(shadow)
 
-        // ── 5. Album art — static, centered ────────────────────────────
+        // 5. Album art — static, centered
         let art = CALayer()
         art.frame = artFrame
         art.contents = cg
@@ -576,15 +566,10 @@ final class AnimatedArtworkView: NSView {
 
     // MARK: - Private: Lightweight Song-Change Update
 
-    /// Only swaps the artwork CGImage on the existing CALayer. The Metal fluid view
-    /// continues running at 60fps completely undisturbed. No GPU pipeline rebuild.
     private func updateArtworkOnly(cg: CGImage, scale: CGFloat) {
-        // Find the art layer in the overlay and update its contents
-        // The overlay is always the second subview (index 1)
         guard subviews.count >= 2,
               let overlayLayer = subviews[1].layer else { return }
 
-        // The art layer is the last sublayer of the overlay
         if let artLayer = overlayLayer.sublayers?.last {
             CATransaction.begin()
             CATransaction.setAnimationDuration(0.4)
@@ -594,7 +579,6 @@ final class AnimatedArtworkView: NSView {
         }
     }
 
-    /// Updates the glow layer color after async palette extraction completes.
     private func updateGlowColor(_ color: NSColor, in bounds: CGRect) {
         guard let glow = glowLayer else { return }
         CATransaction.begin()
@@ -604,26 +588,12 @@ final class AnimatedArtworkView: NSView {
     }
 
     // MARK: - Color Extraction (runs on background thread)
-    //
-    // ── THERMAL FIX 2 + 4 combined:
-    // - Uses the static sharedCIContext (no allocation spike)
-    // - Computes dominant color IN THE SAME PASS as the palette (no second CIFilter run)
-    // - Called only from a background DispatchQueue.global thread
-    //
-    // Algorithm:
-    // Step 1: Sample 10 regions via CIAreaAverage (3×3 grid + center crop)
-    // Step 2: The center crop color is used as the "dominant" color (no second pass)
-    // Step 3: Pick the 5 most visually distinct colors using farthest-first selection
-    // Step 4: Gently boost saturation for vibrant fluid rendering
-    // Step 5: diversifyIfNeeded as safety net for monochromatic covers
 
     private func extractPaletteAndDominant(from cg: CGImage, count: Int) -> ([NSColor], NSColor) {
         let ci = CIImage(cgImage: cg)
         let ext = ci.extent
-        // Use the shared CIContext — not a local one
         let ctx = Self.sharedCIContext
 
-        // 3×3 grid covers all spatial regions of the art
         let cols = 3, rows = 3
         let cellW = ext.width  / CGFloat(cols)
         let cellH = ext.height / CGFloat(rows)
@@ -635,13 +605,11 @@ final class AnimatedArtworkView: NSView {
                                       width: cellW, height: cellH))
             }
         }
-        // Center crop (inner 50%) — captures the main subject
         let centerCrop = CGRect(x: ext.minX + ext.width * 0.25,
                                 y: ext.minY + ext.height * 0.25,
                                 width: ext.width * 0.5, height: ext.height * 0.5)
         regions.append(centerCrop)
 
-        // Sample average color from each region using the shared CIContext
         var sampled: [(r: CGFloat, g: CGFloat, b: CGFloat)] = []
         for region in regions {
             guard let f = CIFilter(name: "CIAreaAverage") else { continue }
@@ -662,17 +630,12 @@ final class AnimatedArtworkView: NSView {
             return (fallbackPalette, fallbackDominant)
         }
 
-        // ── THERMAL FIX 4: Dominant color comes from the center crop sample (last index).
-        // Previously dominantColor() ran a SEPARATE CIAreaAverage on the full image,
-        // which meant 11 CIFilter passes per song change instead of 10.
-        // Now we just reuse sampled[last] which IS the center crop average.
         let centerSample = sampled.last ?? sampled[0]
         let dominantColor = NSColor(red: centerSample.r, green: centerSample.g,
                                     blue: centerSample.b, alpha: 1)
 
-        // Pick the `count` most distinct colors using greedy farthest-first
         var picked: [Int] = []
-        let startIdx = sampled.count - 1  // Start with center crop (the "subject")
+        let startIdx = sampled.count - 1
         picked.append(startIdx)
 
         while picked.count < min(count, sampled.count) {
@@ -691,7 +654,6 @@ final class AnimatedArtworkView: NSView {
             else { break }
         }
 
-        // Convert to NSColor with gentle saturation boost for vibrant fluid rendering
         var colors: [NSColor] = picked.map { idx in
             let c = sampled[idx]
             let base = NSColor(red: c.r, green: c.g, blue: c.b, alpha: 1)
@@ -707,8 +669,6 @@ final class AnimatedArtworkView: NSView {
         return (finalPalette, dominantColor)
     }
 
-    /// When all palette colors are too similar (monochromatic covers like MBDTF),
-    /// generate visible variations from the dominant hue so the fluid has visible waves.
     private func diversifyIfNeeded(_ colors: [NSColor]) -> [NSColor] {
         let hsbColors = colors.compactMap { $0.usingColorSpace(.deviceRGB) }
         guard let first = hsbColors.first else { return colors }
@@ -725,10 +685,9 @@ final class AnimatedArtworkView: NSView {
         let effectiveHueSpread = min(hueSpread, 1.0 - hueSpread)
 
         if effectiveHueSpread > 0.08 || brightSpread > 0.15 {
-            return colors // Already diverse enough
+            return colors
         }
 
-        // Monochromatic — build a rich palette from the dominant color
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         first.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
 
@@ -741,7 +700,6 @@ final class AnimatedArtworkView: NSView {
         ]
     }
 
-    // Fallback for non-Metal systems — static blurred background
     private func blurredImage(_ cg: CGImage) -> CGImage? {
         let ci = CIImage(cgImage: cg)
         guard let blur = CIFilter(name: "CIGaussianBlur") else { return nil }
@@ -753,7 +711,6 @@ final class AnimatedArtworkView: NSView {
         color.setValue(1.4, forKey: kCIInputSaturationKey)
         color.setValue(-0.06, forKey: kCIInputBrightnessKey)
         guard let out = color.outputImage else { return nil }
-        // Uses shared context here too
         return Self.sharedCIContext.createCGImage(out, from: ci.extent)
     }
 }
