@@ -69,7 +69,8 @@ final class AppleMusicService: ObservableObject {
 
     func startMonitoring() {
         stopMonitoring()
-        Logger.info("Apple Music: startMonitoring called", category: .appleMusic)
+        isAuthenticated = true  // Apple Music is always "connected" — no auth needed
+        print("[Resona] Apple Music: startMonitoring called")
 
         // Approach 1: Notification listener (instant when it works)
         nowPlayingObserver = DistributedNotificationCenter.default().addObserver(
@@ -77,7 +78,7 @@ final class AppleMusicService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Logger.info("Apple Music: Received distributed notification!", category: .appleMusic)
+            print("[Resona] Apple Music: Received distributed notification!")
             var info: [String: Any] = [:]
             notification.userInfo?.forEach { key, value in
                 if let strKey = key as? String { info[strKey] = value }
@@ -95,6 +96,7 @@ final class AppleMusicService: ObservableObject {
         }
 
         // Also poll immediately on start
+        print("[Resona] Apple Music: Polling timer started (2s interval)")
         Task { @MainActor in
             pollViaAppleScript()
         }
@@ -115,7 +117,7 @@ final class AppleMusicService: ObservableObject {
         let info = userInfo
 
         let state = info["Player State"] as? String ?? ""
-        Logger.info("Apple Music notification: state=\(state)", category: .appleMusic)
+        print("[Resona] Apple Music notification: state=\(state)")
 
         switch state {
         case "Playing":  playbackState = .playing
@@ -168,7 +170,7 @@ final class AppleMusicService: ObservableObject {
             guard let result = self?.runAppleScript(script) else {
                 if let self = self, self.pollCount % 15 == 0 {
                     DispatchQueue.main.async {
-                        Logger.info("Apple Music poll: AppleScript returned nil (count: \(self.pollCount))", category: .appleMusic)
+                        print("[Resona] Apple Music poll: AppleScript returned nil (count: \(self.pollCount))")
                     }
                 }
                 return
@@ -179,7 +181,7 @@ final class AppleMusicService: ObservableObject {
 
                 if result.starts(with: "NOT_RUNNING") {
                     if self.pollCount % 15 == 0 {
-                        Logger.info("Apple Music poll: Music.app not running (count: \(self.pollCount))", category: .appleMusic)
+                        print("[Resona] Apple Music poll: Music.app not running (count: \(self.pollCount))")
                     }
                     return
                 }
@@ -197,7 +199,7 @@ final class AppleMusicService: ObservableObject {
 
                 if result.starts(with: "ERROR:") {
                     if self.pollCount % 15 == 0 {
-                        Logger.info("Apple Music poll error: \(result)", category: .appleMusic)
+                        print("[Resona] Apple Music poll error: \(result)")
                     }
                     return
                 }
@@ -220,10 +222,18 @@ final class AppleMusicService: ObservableObject {
         guard trackID != lastSeenTrackID else { return }
         lastSeenTrackID = trackID
 
-        Logger.info("Apple Music: New track → \(name) – \(artist) [\(album)]", category: .appleMusic)
+        print("[Resona] Apple Music: New track → \(name) – \(artist) [\(album)]")
 
         Task {
-            let artworkURL = await fetchArtworkViaAppleScript(title: name, artist: artist)
+            // Try AppleScript first (highest quality, direct from Music.app)
+            var artworkURL = await fetchArtworkViaAppleScript(title: name, artist: artist)
+
+            // Fallback: iTunes Search API (free, no auth, always works)
+            if artworkURL == nil {
+                print("[Resona] Apple Music: AppleScript artwork failed, trying iTunes Search API...")
+                artworkURL = await fetchArtworkViaITunesSearch(title: name, artist: artist, album: album)
+            }
+
             let track = Track(
                 id:         trackID,
                 name:       name,
@@ -237,6 +247,227 @@ final class AppleMusicService: ObservableObject {
             )
             scheduleTrackUpdate(track)
         }
+    }
+
+    // MARK: - iTunes Search API Fallback (Free, No Auth)
+    //
+    // Multi-strategy artwork search via the public iTunes Search API.
+    // Priority order:
+    //   1. Album-level search (most reliable for correct cover art)
+    //   2. Song search with album validation
+    //   3. Song search with primary artist extraction
+    // Never returns unvalidated "best guess" artwork — wrong art is worse than no art.
+
+    private func fetchArtworkViaITunesSearch(title: String, artist: String, album: String = "") async -> URL? {
+        let cleanTitle  = cleanForSearch(title)
+        let cleanArtist = cleanForSearch(artist)
+        let cleanAlbum  = cleanForSearch(album)
+        let primaryArtist = extractPrimaryArtist(from: artist)
+
+        // Strategy 1: Search for the ALBUM directly (most reliable for cover art)
+        if !cleanAlbum.isEmpty {
+            if let url = await searchITunesAlbum(
+                query: "\(cleanAlbum) \(primaryArtist)",
+                expectedAlbum: album
+            ) {
+                return url
+            }
+        }
+
+        // Strategy 2: Song search with title + artist + album (validated)
+        if !cleanAlbum.isEmpty {
+            if let url = await searchITunesSong(
+                query: "\(cleanTitle) \(cleanArtist) \(cleanAlbum)",
+                expectedAlbum: album
+            ) {
+                return url
+            }
+        }
+
+        // Strategy 3: Song search with title + primary artist (validated)
+        if let url = await searchITunesSong(
+            query: "\(cleanTitle) \(primaryArtist)",
+            expectedAlbum: album
+        ) {
+            return url
+        }
+
+        // Strategy 4: Song search with just title + cleaned artist (validated)
+        if primaryArtist != cleanArtist {
+            if let url = await searchITunesSong(
+                query: "\(cleanTitle) \(cleanArtist)",
+                expectedAlbum: album
+            ) {
+                return url
+            }
+        }
+
+        // Strategy 5: Album-only search without artist (last resort, still validated)
+        if !cleanAlbum.isEmpty {
+            if let url = await searchITunesAlbum(
+                query: cleanAlbum,
+                expectedAlbum: album
+            ) {
+                return url
+            }
+        }
+
+        print("[Resona] Apple Music: All iTunes Search strategies failed for '\(title)' by '\(artist)' on '\(album)'")
+        return nil
+    }
+
+    // MARK: - Album-Level Search (entity=album)
+    // Searches for albums directly — returns the album artwork without needing to match individual songs.
+
+    private func searchITunesAlbum(query: String, expectedAlbum: String) async -> URL? {
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: query),
+            URLQueryItem(name: "media", value: "music"),
+            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "limit", value: "10")
+        ]
+        guard let url = components.url else { return nil }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let results = json["results"] as? [[String: Any]],
+                  !results.isEmpty
+            else { return nil }
+
+            let normalizedAlbum = normalizeForComparison(expectedAlbum)
+
+            // Exact album name match
+            for result in results {
+                let resultAlbum = result["collectionName"] as? String ?? ""
+                if normalizeForComparison(resultAlbum) == normalizedAlbum {
+                    if let artURL = extractHighResArtwork(from: result) {
+                        print("[Resona] Apple Music: iTunes album search matched '\(resultAlbum)' ✓")
+                        return artURL
+                    }
+                }
+            }
+
+            // Partial match (e.g. "Donda" matches "Donda (Deluxe)")
+            for result in results {
+                let resultAlbum = result["collectionName"] as? String ?? ""
+                let n = normalizeForComparison(resultAlbum)
+                if n.contains(normalizedAlbum) || normalizedAlbum.contains(n) {
+                    if let artURL = extractHighResArtwork(from: result) {
+                        print("[Resona] Apple Music: iTunes album search partial match '\(resultAlbum)' ✓")
+                        return artURL
+                    }
+                }
+            }
+
+            return nil  // No match found — don't guess
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Song-Level Search (entity=song, validated against album)
+
+    private func searchITunesSong(query: String, expectedAlbum: String) async -> URL? {
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: query),
+            URLQueryItem(name: "media", value: "music"),
+            URLQueryItem(name: "entity", value: "song"),
+            URLQueryItem(name: "limit", value: "15")
+        ]
+        guard let url = components.url else { return nil }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let results = json["results"] as? [[String: Any]],
+                  !results.isEmpty
+            else { return nil }
+
+            let normalizedAlbum = normalizeForComparison(expectedAlbum)
+
+            // Only return results that match the expected album
+            for result in results {
+                let resultAlbum = result["collectionName"] as? String ?? ""
+                let n = normalizeForComparison(resultAlbum)
+                if n == normalizedAlbum || n.contains(normalizedAlbum) || normalizedAlbum.contains(n) {
+                    if let artURL = extractHighResArtwork(from: result) {
+                        print("[Resona] Apple Music: iTunes song search matched album '\(resultAlbum)' ✓")
+                        return artURL
+                    }
+                }
+            }
+
+            return nil  // No album-validated match — don't guess
+        } catch {
+            return nil
+        }
+    }
+
+    /// Extract high-res artwork URL from an iTunes result dictionary
+    private func extractHighResArtwork(from result: [String: Any]) -> URL? {
+        guard let artworkURLString = result["artworkUrl100"] as? String else { return nil }
+        let highRes = artworkURLString.replacingOccurrences(of: "100x100", with: "1000x1000")
+        return URL(string: highRes)
+    }
+
+    /// Clean a string for use in iTunes Search — remove special chars, feat. tags, etc.
+    private func cleanForSearch(_ text: String) -> String {
+        var cleaned = text
+        // Remove featured artist tags
+        let featPatterns = ["(feat.", "(ft.", "(featuring", "[feat.", "[ft."]
+        for pattern in featPatterns {
+            if let range = cleaned.range(of: pattern, options: .caseInsensitive) {
+                // Find the closing bracket
+                let closeChar: Character = pattern.hasPrefix("(") ? ")" : "]"
+                if let closeRange = cleaned[range.upperBound...].firstIndex(of: closeChar) {
+                    cleaned.removeSubrange(range.lowerBound...closeRange)
+                } else {
+                    cleaned = String(cleaned[..<range.lowerBound])
+                }
+            }
+        }
+        // Remove special characters that break search
+        let specialChars = CharacterSet.alphanumerics.union(.whitespaces).inverted
+        cleaned = cleaned.unicodeScalars.filter { !specialChars.contains($0) || $0 == " " }
+            .map { String($0) }.joined()
+        // Collapse multiple spaces
+        cleaned = cleaned.components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        return cleaned.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Extract the primary/most-recognizable artist name
+    /// e.g. "¥$, Kanye West & Ty Dolla $ign" → "Kanye West"
+    private func extractPrimaryArtist(from artist: String) -> String {
+        // Split by common separators and find the longest recognizable name
+        let separators = [",", "&", " x ", " X ", " feat.", " ft.", " featuring"]
+        var parts = [artist]
+        for sep in separators {
+            parts = parts.flatMap { $0.components(separatedBy: sep) }
+        }
+        // Clean each part and pick the longest (usually the main artist)
+        let cleaned = parts.map { cleanForSearch($0) }.filter { !$0.isEmpty }
+        return cleaned.max(by: { $0.count < $1.count }) ?? cleanForSearch(artist)
+    }
+
+    /// Normalize a string for comparison (lowercase, remove parentheticals, trim)
+    private func normalizeForComparison(_ text: String) -> String {
+        var s = text.lowercased()
+        // Remove parenthetical suffixes like "(Deluxe)", "(Explicit)", etc.
+        while let open = s.range(of: "(") {
+            if let close = s[open.upperBound...].firstIndex(of: ")") {
+                s.removeSubrange(open.lowerBound...close)
+            } else { break }
+        }
+        while let open = s.range(of: "[") {
+            if let close = s[open.upperBound...].firstIndex(of: "]") {
+                s.removeSubrange(open.lowerBound...close)
+            } else { break }
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - AppleScript Artwork Fetch (No MusicKit / No $99 Required)
@@ -305,7 +536,7 @@ final class AppleMusicService: ObservableObject {
             guard let self else { return }
             self.currentTrack = track
             NotificationCenter.default.post(name: .trackDidChange, object: track)
-            Logger.info("Apple Music: \(track.name) – \(track.artist)", category: .appleMusic)
+            print("[Resona] Apple Music: \(track.name) – \(track.artist)")
         }
         debounceWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + Constants.Wallpaper.debounceInterval, execute: item)
