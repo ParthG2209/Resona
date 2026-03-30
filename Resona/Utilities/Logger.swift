@@ -8,11 +8,15 @@ enum Logger {
 
     private static let subsystem = Constants.App.bundleIdentifier
 
-    private static let general  = OSLog(subsystem: subsystem, category: "General")
-    private static let spotify  = OSLog(subsystem: subsystem, category: "Spotify")
-    private static let appleMusic = OSLog(subsystem: subsystem, category: "AppleMusic")
-    private static let wallpaper  = OSLog(subsystem: subsystem, category: "Wallpaper")
-    private static let cache    = OSLog(subsystem: subsystem, category: "Cache")
+    // Static constants — allocated exactly once for the entire app lifetime.
+    // Previously the LogCategory.log computed property called OSLog(subsystem:category:)
+    // on every single log statement, creating a new OSLog object each time.
+    // OSLog objects are expensive to construct and are meant to be long-lived constants.
+    static let general    = OSLog(subsystem: subsystem, category: "General")
+    static let spotify    = OSLog(subsystem: subsystem, category: "Spotify")
+    static let appleMusic = OSLog(subsystem: subsystem, category: "AppleMusic")
+    static let wallpaper  = OSLog(subsystem: subsystem, category: "Wallpaper")
+    static let cache      = OSLog(subsystem: subsystem, category: "Cache")
 
     static func info(_ message: String, category: LogCategory = .general) {
         guard AppSettings.shared.enableDebugLogging else { return }
@@ -39,14 +43,16 @@ enum Logger {
 enum LogCategory {
     case general, spotify, appleMusic, wallpaper, cache
 
+    // Returns the pre-allocated static constant instead of constructing a new
+    // OSLog object on every invocation. This is the correct pattern per Apple's
+    // os.log documentation: "Create log objects once and reuse them."
     var log: OSLog {
-        let subsystem = Constants.App.bundleIdentifier
         switch self {
-        case .general:    return OSLog(subsystem: subsystem, category: "General")
-        case .spotify:    return OSLog(subsystem: subsystem, category: "Spotify")
-        case .appleMusic: return OSLog(subsystem: subsystem, category: "AppleMusic")
-        case .wallpaper:  return OSLog(subsystem: subsystem, category: "Wallpaper")
-        case .cache:      return OSLog(subsystem: subsystem, category: "Cache")
+        case .general:    return Logger.general
+        case .spotify:    return Logger.spotify
+        case .appleMusic: return Logger.appleMusic
+        case .wallpaper:  return Logger.wallpaper
+        case .cache:      return Logger.cache
         }
     }
 }
