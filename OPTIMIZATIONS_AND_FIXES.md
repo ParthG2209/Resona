@@ -7,12 +7,7 @@ This document outlines the architectural overhauls required to fix the five core
 
 ## 2. Issue Diagnoses & Solutions
 
-### Issue 1: Severe Overheating (70-80°C on MacBook Air)
-*   **Context:** Rendering full-screen complex fluid shaders natively at 60fps cooks passively cooled M-Series chips over time.
-*   **Solution (Invisible Backend Optimizations):**
-    1.  **Internal Resolution Downscaling:** The mathematical fluid gradients will render at a 50%-75% target resolution and use Apple's hardware filtering to upscale instantly to the Retina display. The visual identicality remains 100%, but GPU fill-rate drops by 4x.
-    2.  **Zero-Idle CPU Loops:** Complete rewrite of the `Combine` pipelines to guarantee 0% CPU usage when the music is paused.
-    3.  **MTKView Texture Recycling:** Stop recreating images in RAM on every frame change. The GPU will cycle the same blocks of VRAM forever.
+
 
 ### Issue 2 & 3: Original Wallpaper Flashes & Jittery Transitions
 *   **Context:** Currently, switching songs drops UI layers or animation frames abruptly, exposing the real macOS desktop and breaking immersion.
@@ -41,7 +36,6 @@ This document outlines the architectural overhauls required to fix the five core
 
 | ID | Issue | Decision Chosen | Alternative Rejected | Rationale |
 |:---|:---|:---|:---|:---|
-| **01** | Performance | **Invisible Engine Optimizations** | Dropping FPS to 30 or reducing fluid complexity. | A premium app shouldn't compromise on smoothness or quality. Internal resolution scaling and smart polling achieve the thermal drop invisibly. |
 | **02** | Visual Flashes | **AutoMix Double-Buffering** | Taking a static screenshot (Freeze Frame) or Fading to a solid color. | Crossfading two living textures is intensive but makes the app feel like a true dynamic ocean. The desktop must remain entirely hidden. |
 | **03** | Rapid Skips | **Patient Listener (Strict Debounce)** | Instant response with aggressive network cancellation. | A 0.8s strict debounce cleanly protects the Network/GPU from thrashing when the user is trying to find a song they like. |
 | **04** | Spotify Restarts | **Deep Sleep Hibernation** | Blindly auto-retrying failed Combine publishers. | Sleeping when not in use is macOS best practice. Destroying and properly rebuilding the visual pipeline guarantees no memory leaks over days of uptime. |
