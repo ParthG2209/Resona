@@ -17,21 +17,26 @@ final class AppleMusicService: ObservableObject {
     private var lastSeenTrackID: String?
     private var nowPlayingObserver: NSObjectProtocol?
 
+    // MARK: - Deep Sleep State
+    //
+    // Tracks whether Music.app is currently running so we can pause the expensive
+    // 2-second AppleScript polling subprocess when it isn't. The distributed
+    // notification observer stays active at all times (it costs nothing when idle)
+    // so we never miss a track change if the user relaunches Music.app.
+    private var isMusicAppRunning = false
+    private var workspaceObservers: [NSObjectProtocol] = []
+
     // MARK: - Authorization (AppleScript-based — no MusicKit needed)
 
     func connect() async {
         Logger.info("🎵 Apple Music: connect() called", category: .appleMusic)
 
-        // Mark as connected — notification listener works even if Music isn't running yet
         isAuthenticated = true
         AppSettings.shared.appleMusicConnected = true
         startMonitoring()
 
-        // Notify MusicDetectionService so it knows we're active
         MusicDetectionService.shared.appleMusicConnectionChanged()
 
-        // Try a lightweight test against Music.app to trigger the automation permission dialog
-        // This will show "Resona wants to control Music" prompt on first run
         DispatchQueue.global(qos: .utility).async {
             let testScript = """
             tell application "Music"
@@ -63,16 +68,25 @@ final class AppleMusicService: ObservableObject {
     }
 
     // MARK: - Monitoring
-    // Two approaches run in parallel:
-    // 1. DistributedNotificationCenter — instant but can miss events
-    // 2. AppleScript polling every 2s — reliable fallback
+    //
+    // Three layers, each cheaper than the last when Music.app is absent:
+    //
+    // 1. DistributedNotificationCenter — zero cost when Music isn't running.
+    //    Fires instantly when Music.app posts a playerInfo notification.
+    //
+    // 2. NSWorkspace launch/terminate observers — used to flip isMusicAppRunning,
+    //    which gates whether the AppleScript timer is active. Costs nothing.
+    //
+    // 3. AppleScript poll every 2s — only runs while isMusicAppRunning == true.
+    //    Previously this spawned an NSAppleScript subprocess unconditionally,
+    //    even when Music.app was not open. Now it pauses automatically.
 
     func startMonitoring() {
         stopMonitoring()
-        isAuthenticated = true  // Apple Music is always "connected" — no auth needed
+        isAuthenticated = true
         print("[Resona] Apple Music: startMonitoring called")
 
-        // Approach 1: Notification listener (instant when it works)
+        // Approach 1: Instant distributed notification (always active, zero cost)
         nowPlayingObserver = DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.Music.playerInfo"),
             object: nil,
@@ -88,17 +102,55 @@ final class AppleMusicService: ObservableObject {
             }
         }
 
-        // Approach 2: AppleScript poll every 2s (reliable fallback)
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.pollViaAppleScript()
-            }
+        // Approach 2: NSWorkspace observers to track Music.app lifecycle.
+        // When Music.app quits we stop spawning 2s AppleScript subprocesses.
+        // When it relaunches we restart the timer immediately.
+        let ws = NSWorkspace.shared.notificationCenter
+
+        let terminateObserver = ws.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.bundleIdentifier == "com.apple.Music"
+            else { return }
+            print("[Resona] Apple Music: Music.app terminated — pausing AppleScript poll timer")
+            self.isMusicAppRunning = false
+            self.stopPollTimer()
+            // Update playback state since Music is gone
+            self.playbackState = .stopped
+            NotificationCenter.default.post(name: .playbackStateDidChange, object: PlaybackState.stopped)
         }
 
-        // Also poll immediately on start
-        print("[Resona] Apple Music: Polling timer started (2s interval)")
-        Task { @MainActor in
-            pollViaAppleScript()
+        let launchObserver = ws.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.bundleIdentifier == "com.apple.Music"
+            else { return }
+            print("[Resona] Apple Music: Music.app launched — resuming AppleScript poll timer")
+            self.isMusicAppRunning = true
+            self.startPollTimer()
+        }
+
+        workspaceObservers = [terminateObserver, launchObserver]
+
+        // Check if Music.app is already running right now before starting the timer.
+        // This correctly handles the case where startMonitoring is called while
+        // Music is already open (e.g. on app launch or reconnect).
+        isMusicAppRunning = NSWorkspace.shared.runningApplications
+            .contains { $0.bundleIdentifier == "com.apple.Music" }
+
+        if isMusicAppRunning {
+            print("[Resona] Apple Music: Music.app already running — starting poll timer")
+            startPollTimer()
+        } else {
+            print("[Resona] Apple Music: Music.app not running — poll timer deferred until launch")
         }
     }
 
@@ -107,6 +159,33 @@ final class AppleMusicService: ObservableObject {
             DistributedNotificationCenter.default().removeObserver(observer)
             nowPlayingObserver = nil
         }
+
+        for observer in workspaceObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        workspaceObservers.removeAll()
+
+        stopPollTimer()
+        isMusicAppRunning = false
+    }
+
+    // MARK: - Poll Timer Management
+
+    private func startPollTimer() {
+        stopPollTimer()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.pollViaAppleScript()
+            }
+        }
+        print("[Resona] Apple Music: Poll timer started (2s interval)")
+        // Fire once immediately so we don't wait for the first interval tick
+        Task { @MainActor in
+            pollViaAppleScript()
+        }
+    }
+
+    private func stopPollTimer() {
         pollTimer?.invalidate()
         pollTimer = nil
     }
@@ -133,11 +212,15 @@ final class AppleMusicService: ObservableObject {
               let artist = info["Artist"] as? String
         else { return }
 
-        let album   = info["Album"] as? String ?? "Unknown Album"
+        let album = info["Album"] as? String ?? "Unknown Album"
         processTrackChange(name: name, artist: artist, album: album)
     }
 
     // MARK: - AppleScript Poll (Reliable Fallback)
+    //
+    // Only called when isMusicAppRunning == true (enforced by the timer only
+    // being active in that state). This means we never spawn an NSAppleScript
+    // subprocess for an app that isn't running.
 
     private var pollCount = 0
 
@@ -179,6 +262,9 @@ final class AppleMusicService: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
 
+                // NOT_RUNNING here means Music.app quit between when we scheduled
+                // this poll and when it ran. The workspace terminate observer will
+                // have already (or will shortly) pause the timer — just return.
                 if result.starts(with: "NOT_RUNNING") {
                     if self.pollCount % 15 == 0 {
                         print("[Resona] Apple Music poll: Music.app not running (count: \(self.pollCount))")
@@ -225,10 +311,8 @@ final class AppleMusicService: ObservableObject {
         print("[Resona] Apple Music: New track → \(name) – \(artist) [\(album)]")
 
         Task {
-            // Try AppleScript first (highest quality, direct from Music.app)
             var artworkURL = await fetchArtworkViaAppleScript(title: name, artist: artist)
 
-            // Fallback: iTunes Search API (free, no auth, always works)
             if artworkURL == nil {
                 print("[Resona] Apple Music: AppleScript artwork failed, trying iTunes Search API...")
                 artworkURL = await fetchArtworkViaITunesSearch(title: name, artist: artist, album: album)
@@ -250,13 +334,6 @@ final class AppleMusicService: ObservableObject {
     }
 
     // MARK: - iTunes Search API Fallback (Free, No Auth)
-    //
-    // Multi-strategy artwork search via the public iTunes Search API.
-    // Priority order:
-    //   1. Album-level search (most reliable for correct cover art)
-    //   2. Song search with album validation
-    //   3. Song search with primary artist extraction
-    // Never returns unvalidated "best guess" artwork — wrong art is worse than no art.
 
     private func fetchArtworkViaITunesSearch(title: String, artist: String, album: String = "") async -> URL? {
         let cleanTitle  = cleanForSearch(title)
@@ -264,50 +341,30 @@ final class AppleMusicService: ObservableObject {
         let cleanAlbum  = cleanForSearch(album)
         let primaryArtist = extractPrimaryArtist(from: artist)
 
-        // Strategy 1: Search for the ALBUM directly (most reliable for cover art)
         if !cleanAlbum.isEmpty {
-            if let url = await searchITunesAlbum(
-                query: "\(cleanAlbum) \(primaryArtist)",
-                expectedAlbum: album
-            ) {
+            if let url = await searchITunesAlbum(query: "\(cleanAlbum) \(primaryArtist)", expectedAlbum: album) {
                 return url
             }
         }
 
-        // Strategy 2: Song search with title + artist + album (validated)
         if !cleanAlbum.isEmpty {
-            if let url = await searchITunesSong(
-                query: "\(cleanTitle) \(cleanArtist) \(cleanAlbum)",
-                expectedAlbum: album
-            ) {
+            if let url = await searchITunesSong(query: "\(cleanTitle) \(cleanArtist) \(cleanAlbum)", expectedAlbum: album) {
                 return url
             }
         }
 
-        // Strategy 3: Song search with title + primary artist (validated)
-        if let url = await searchITunesSong(
-            query: "\(cleanTitle) \(primaryArtist)",
-            expectedAlbum: album
-        ) {
+        if let url = await searchITunesSong(query: "\(cleanTitle) \(primaryArtist)", expectedAlbum: album) {
             return url
         }
 
-        // Strategy 4: Song search with just title + cleaned artist (validated)
         if primaryArtist != cleanArtist {
-            if let url = await searchITunesSong(
-                query: "\(cleanTitle) \(cleanArtist)",
-                expectedAlbum: album
-            ) {
+            if let url = await searchITunesSong(query: "\(cleanTitle) \(cleanArtist)", expectedAlbum: album) {
                 return url
             }
         }
 
-        // Strategy 5: Album-only search without artist (last resort, still validated)
         if !cleanAlbum.isEmpty {
-            if let url = await searchITunesAlbum(
-                query: cleanAlbum,
-                expectedAlbum: album
-            ) {
+            if let url = await searchITunesAlbum(query: cleanAlbum, expectedAlbum: album) {
                 return url
             }
         }
@@ -315,9 +372,6 @@ final class AppleMusicService: ObservableObject {
         print("[Resona] Apple Music: All iTunes Search strategies failed for '\(title)' by '\(artist)' on '\(album)'")
         return nil
     }
-
-    // MARK: - Album-Level Search (entity=album)
-    // Searches for albums directly — returns the album artwork without needing to match individual songs.
 
     private func searchITunesAlbum(query: String, expectedAlbum: String) async -> URL? {
         var components = URLComponents(string: "https://itunes.apple.com/search")!
@@ -338,7 +392,6 @@ final class AppleMusicService: ObservableObject {
 
             let normalizedAlbum = normalizeForComparison(expectedAlbum)
 
-            // Exact album name match
             for result in results {
                 let resultAlbum = result["collectionName"] as? String ?? ""
                 if normalizeForComparison(resultAlbum) == normalizedAlbum {
@@ -349,7 +402,6 @@ final class AppleMusicService: ObservableObject {
                 }
             }
 
-            // Partial match (e.g. "Donda" matches "Donda (Deluxe)")
             for result in results {
                 let resultAlbum = result["collectionName"] as? String ?? ""
                 let n = normalizeForComparison(resultAlbum)
@@ -361,13 +413,11 @@ final class AppleMusicService: ObservableObject {
                 }
             }
 
-            return nil  // No match found — don't guess
+            return nil
         } catch {
             return nil
         }
     }
-
-    // MARK: - Song-Level Search (entity=song, validated against album)
 
     private func searchITunesSong(query: String, expectedAlbum: String) async -> URL? {
         var components = URLComponents(string: "https://itunes.apple.com/search")!
@@ -388,7 +438,6 @@ final class AppleMusicService: ObservableObject {
 
             let normalizedAlbum = normalizeForComparison(expectedAlbum)
 
-            // Only return results that match the expected album
             for result in results {
                 let resultAlbum = result["collectionName"] as? String ?? ""
                 let n = normalizeForComparison(resultAlbum)
@@ -400,27 +449,23 @@ final class AppleMusicService: ObservableObject {
                 }
             }
 
-            return nil  // No album-validated match — don't guess
+            return nil
         } catch {
             return nil
         }
     }
 
-    /// Extract high-res artwork URL from an iTunes result dictionary
     private func extractHighResArtwork(from result: [String: Any]) -> URL? {
         guard let artworkURLString = result["artworkUrl100"] as? String else { return nil }
         let highRes = artworkURLString.replacingOccurrences(of: "100x100", with: "1000x1000")
         return URL(string: highRes)
     }
 
-    /// Clean a string for use in iTunes Search — remove special chars, feat. tags, etc.
     private func cleanForSearch(_ text: String) -> String {
         var cleaned = text
-        // Remove featured artist tags
         let featPatterns = ["(feat.", "(ft.", "(featuring", "[feat.", "[ft."]
         for pattern in featPatterns {
             if let range = cleaned.range(of: pattern, options: .caseInsensitive) {
-                // Find the closing bracket
                 let closeChar: Character = pattern.hasPrefix("(") ? ")" : "]"
                 if let closeRange = cleaned[range.upperBound...].firstIndex(of: closeChar) {
                     cleaned.removeSubrange(range.lowerBound...closeRange)
@@ -429,34 +474,26 @@ final class AppleMusicService: ObservableObject {
                 }
             }
         }
-        // Remove special characters that break search
         let specialChars = CharacterSet.alphanumerics.union(.whitespaces).inverted
         cleaned = cleaned.unicodeScalars.filter { !specialChars.contains($0) || $0 == " " }
             .map { String($0) }.joined()
-        // Collapse multiple spaces
         cleaned = cleaned.components(separatedBy: .whitespaces)
             .filter { !$0.isEmpty }.joined(separator: " ")
         return cleaned.trimmingCharacters(in: .whitespaces)
     }
 
-    /// Extract the primary/most-recognizable artist name
-    /// e.g. "¥$, Kanye West & Ty Dolla $ign" → "Kanye West"
     private func extractPrimaryArtist(from artist: String) -> String {
-        // Split by common separators and find the longest recognizable name
         let separators = [",", "&", " x ", " X ", " feat.", " ft.", " featuring"]
         var parts = [artist]
         for sep in separators {
             parts = parts.flatMap { $0.components(separatedBy: sep) }
         }
-        // Clean each part and pick the longest (usually the main artist)
         let cleaned = parts.map { cleanForSearch($0) }.filter { !$0.isEmpty }
         return cleaned.max(by: { $0.count < $1.count }) ?? cleanForSearch(artist)
     }
 
-    /// Normalize a string for comparison (lowercase, remove parentheticals, trim)
     private func normalizeForComparison(_ text: String) -> String {
         var s = text.lowercased()
-        // Remove parenthetical suffixes like "(Deluxe)", "(Explicit)", etc.
         while let open = s.range(of: "(") {
             if let close = s[open.upperBound...].firstIndex(of: ")") {
                 s.removeSubrange(open.lowerBound...close)
@@ -470,18 +507,13 @@ final class AppleMusicService: ObservableObject {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: - AppleScript Artwork Fetch (No MusicKit / No $99 Required)
-    //
-    // Queries Music.app directly for the current track's artwork data.
-    // The artwork is saved to a temp file and returned as a file URL.
-    // This works for both Apple Music streaming tracks and local library tracks.
+    // MARK: - AppleScript Artwork Fetch
 
     private func fetchArtworkViaAppleScript(title: String, artist: String) async -> URL? {
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let tempPath = NSTemporaryDirectory() + "resona_artwork_\(UUID().uuidString).jpg"
 
-                // AppleScript to get artwork from the currently playing track
                 let script = """
                 tell application "Music"
                     if it is running then
