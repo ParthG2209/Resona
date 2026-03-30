@@ -43,6 +43,8 @@ final class SpotifyService: ObservableObject {
     private var debounceWorkItem: DispatchWorkItem?
     private var pollCount204: Int = 0
     private var hasDiagnosed = false
+    private var currentPollInterval: TimeInterval = 3.0
+    private var rateLimitBackoffTask: DispatchWorkItem?
 
     // Use a dedicated URLSession with no caching to avoid stale responses
     private let session: URLSession = {
@@ -228,11 +230,9 @@ final class SpotifyService: ObservableObject {
         stopPolling()
         pollCount204 = 0
         hasDiagnosed = false
-        let interval = TimeInterval(AppSettings.shared.pollingIntervalSeconds)
-        print("[Resona] Starting Spotify polling every \(interval)s")
-        pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.fetchCurrentlyPlaying()
-        }
+        currentPollInterval = 3.0  // Start at 3s — safe for Spotify's ~30 req/min limit
+        print("[Resona] Starting Spotify polling every \(currentPollInterval)s")
+        schedulePoll(interval: currentPollInterval)
         // Fire immediately so we don't wait for the first interval
         fetchCurrentlyPlaying()
     }
@@ -240,6 +240,32 @@ final class SpotifyService: ObservableObject {
     func stopPolling() {
         pollTimer?.invalidate()
         pollTimer = nil
+        rateLimitBackoffTask?.cancel()
+        rateLimitBackoffTask = nil
+    }
+
+    /// Reschedule the poll timer at the given interval
+    private func schedulePoll(interval: TimeInterval) {
+        pollTimer?.invalidate()
+        currentPollInterval = interval
+        pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.fetchCurrentlyPlaying()
+        }
+    }
+
+    /// Pause polling for `duration` seconds, then resume at a slower rate
+    private func backOffPolling(retryAfter: TimeInterval) {
+        print("[Resona] ⏸ Rate limited — pausing polls for \(Int(retryAfter))s")
+        stopPolling()
+        let task = DispatchWorkItem { [weak self] in
+            guard let self, self.isAuthenticated else { return }
+            print("[Resona] ▶️ Resuming polling at 5s interval after rate limit")
+            DispatchQueue.main.async {
+                self.schedulePoll(interval: 5.0)
+            }
+        }
+        rateLimitBackoffTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryAfter, execute: task)
     }
 
     // MARK: - Now Playing
@@ -276,13 +302,28 @@ final class SpotifyService: ObservableObject {
                     return
                 }
                 if let http = response as? HTTPURLResponse {
+                    // --- 429 Rate Limit ---
+                    if http.statusCode == 429 {
+                        let retryAfter = http.value(forHTTPHeaderField: "Retry-After")
+                            .flatMap { TimeInterval($0) } ?? 30.0
+                        print("[Resona] ⚠️ Spotify 429 Rate Limited! Retry-After: \(Int(retryAfter))s")
+                        DispatchQueue.main.async { self.backOffPolling(retryAfter: retryAfter) }
+                        return
+                    }
+
+                    // --- 204 No Content (nothing playing) ---
                     if http.statusCode == 204 {
                         self.pollCount204 += 1
-                        // Log every 30th 204 to avoid flooding, plus always log the first one
                         if self.pollCount204 == 1 || self.pollCount204 % 30 == 0 {
                             print("[Resona] Spotify poll HTTP 204 (no active playback) — count: \(self.pollCount204)")
                         }
-                        // After 10 consecutive 204s, run diagnostics once
+                        // Slow down when nothing is playing (save API quota)
+                        if self.pollCount204 == 3 && self.currentPollInterval < 5.0 {
+                            DispatchQueue.main.async {
+                                print("[Resona] Nothing playing — slowing poll to 5s")
+                                self.schedulePoll(interval: 5.0)
+                            }
+                        }
                         if self.pollCount204 == 10 && !self.hasDiagnosed {
                             self.hasDiagnosed = true
                             self.runDiagnostics(token: token)
@@ -290,9 +331,19 @@ final class SpotifyService: ObservableObject {
                         DispatchQueue.main.async { self.handleNothingPlaying() }
                         return
                     }
-                    // Reset 204 counter on any non-204 response
+
+                    // --- Got content — speed up if we were slow ---
+                    if self.pollCount204 > 0 && self.currentPollInterval > 3.0 {
+                        DispatchQueue.main.async {
+                            print("[Resona] Playback detected — speeding poll to 3s")
+                            self.schedulePoll(interval: 3.0)
+                        }
+                    }
                     self.pollCount204 = 0
-                    print("[Resona] Spotify poll HTTP \(http.statusCode)")
+
+                    if http.statusCode != 200 {
+                        print("[Resona] Spotify poll HTTP \(http.statusCode)")
+                    }
                     if http.statusCode == 401 {
                         print("[Resona] 401 — token expired, will refresh on next poll")
                         self.tokenExpiryDate = Date() // force refresh next time
