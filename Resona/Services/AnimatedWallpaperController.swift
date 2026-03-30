@@ -167,6 +167,11 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
     private var startTime: CFAbsoluteTime = 0
     private var palette: [SIMD4<Float>] = Array(repeating: SIMD4<Float>(0.12, 0.08, 0.2, 1), count: 5)
 
+    /// Internal render scale (0.5 = half resolution, 1.0 = native Retina).
+    /// Fluid gradients are mathematically smooth, so 0.5 looks identical
+    /// but shades 4× fewer pixels — massive GPU/thermal savings.
+    private let internalScale: CGFloat = 0.5
+
     struct Uniforms {
         var time: Float
         var speed: Float          // wave intensity (0 = frozen, 1 = full)
@@ -228,6 +233,15 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
         enableSetNeedsDisplay = false
         colorPixelFormat = .bgra8Unorm
         startTime = CFAbsoluteTimeGetCurrent()
+
+        // Render at reduced internal resolution — the key thermal optimization.
+        // On a 2560×1600 @2x Retina display:
+        //   Native drawableSize = 5120×3200 (16.4M pixels)
+        //   At 0.5 scale        = 2560×1600 ( 4.1M pixels) ← 4× less GPU work
+        // Metal's hardware sampler upscales smoothly to the full window.
+        if let layer = self.layer as? CAMetalLayer {
+            layer.contentsScale = (NSScreen.main?.backingScaleFactor ?? 2.0) * internalScale
+        }
     }
 
     required init(coder: NSCoder) { fatalError() }
@@ -269,7 +283,12 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
         cmdBuf.commit()
     }
 
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        // Keep internal scale when the window/screen resizes
+        if let layer = view.layer as? CAMetalLayer {
+            layer.contentsScale = (NSScreen.main?.backingScaleFactor ?? 2.0) * internalScale
+        }
+    }
 
     // MARK: - Embedded Metal Shader (compiled once at runtime)
 
