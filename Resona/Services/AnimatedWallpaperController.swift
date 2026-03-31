@@ -6,7 +6,9 @@ import MetalKit
 // MARK: - AnimatedWallpaperController
 /// Creates a borderless desktop-level window and displays animated album art
 /// using a Metal GPU shader (fluid color waves) + static centered album artwork.
-/// Also supports video playback for Spotify Canvas when available.
+/// When a Spotify Canvas URL is available the looping video replaces the still
+/// album-art image inside the *same* centered frame — the fluid background keeps
+/// running unchanged behind it.
 ///
 /// THERMAL OPTIMIZATIONS (all invisible to the user):
 /// 1. FluidWaveView is NEVER destroyed between song changes — only its color palette
@@ -32,36 +34,30 @@ final class AnimatedWallpaperController {
     // MARK: - State
 
     private var windows: [NSWindow] = []
-    private var queuePlayer: AVQueuePlayer?
-    private var playerLooper: AVPlayerLooper?
     private var currentTrackID: String?
     private(set) var isShowing = false
 
     // Persistent art views — kept alive across song changes so Metal is never rebuilt.
-    // Only the artwork image and color palette are swapped when a track changes.
+    // Only the artwork image / canvas URL and color palette are swapped on track change.
     private var artViews: [AnimatedArtworkView] = []
 
     // MARK: - Public
 
+    /// Show (or update) the wallpaper for the given track.
+    /// - Parameters:
+    ///   - artworkImage: Still album-art image used for the fluid palette and as a
+    ///                   fallback when no canvas is available.
+    ///   - trackID:      Stable identifier; a no-op if the same track is already shown.
+    ///   - canvasURL:    Optional Spotify Canvas video URL. When supplied the looping
+    ///                   video is rendered inside the centered art frame in place of
+    ///                   the still image. The fluid background is unaffected.
     func show(artworkImage: NSImage, trackID: String, canvasURL: URL? = nil) {
         guard trackID != currentTrackID else { return }
         currentTrackID = trackID
         isShowing = true
 
-        if canvasURL != nil {
-            dismissImmediate()
-            for screen in NSScreen.screens {
-                let win = makeDesktopWindow(for: screen)
-                attachVideo(to: win, url: canvasURL!, screen: screen)
-                win.alphaValue = 0
-                win.orderFront(nil)
-                NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 1.0
-                    win.animator().alphaValue = 1
-                }
-                windows.append(win)
-            }
-        } else if windows.isEmpty || artViews.isEmpty {
+        if windows.isEmpty || artViews.isEmpty {
+            // First song — build the full window/view stack from scratch.
             dismissImmediate()
             for screen in NSScreen.screens {
                 let win = makeDesktopWindow(for: screen)
@@ -79,12 +75,21 @@ final class AnimatedWallpaperController {
             }
             for (i, artView) in artViews.enumerated() {
                 let screen = NSScreen.screens[safe: i] ?? NSScreen.main ?? NSScreen.screens[0]
-                artView.configure(with: artworkImage, scale: screen.backingScaleFactor)
+                artView.configure(
+                    with: artworkImage,
+                    canvasURL: canvasURL,
+                    scale: screen.backingScaleFactor
+                )
             }
         } else {
+            // Subsequent song — reuse existing views; swap artwork/canvas only.
             for (i, artView) in artViews.enumerated() {
                 let screen = NSScreen.screens[safe: i] ?? NSScreen.main ?? NSScreen.screens[0]
-                artView.configure(with: artworkImage, scale: screen.backingScaleFactor)
+                artView.configure(
+                    with: artworkImage,
+                    canvasURL: canvasURL,
+                    scale: screen.backingScaleFactor
+                )
             }
         }
     }
@@ -93,13 +98,8 @@ final class AnimatedWallpaperController {
         guard isShowing else { return }
         isShowing = false
         currentTrackID = nil
-        queuePlayer?.pause(); queuePlayer = nil; playerLooper = nil
 
         // Stop all CABasicAnimation loops on every art view before discarding them.
-        // The glow pulse and any other animations running on sublayers are explicitly
-        // removed here so CoreAnimation stops ticking them immediately. Without this,
-        // CA continues animating layers for one more render cycle after they've been
-        // removed from the view hierarchy, wasting work the user never sees.
         for artView in artViews {
             artView.stopAllAnimations()
         }
@@ -117,12 +117,10 @@ final class AnimatedWallpaperController {
     // MARK: - Private
 
     private func dismissImmediate() {
-        // Stop animations before discarding art views — same reasoning as dismiss().
         for artView in artViews {
             artView.stopAllAnimations()
         }
         artViews.removeAll()
-        queuePlayer?.pause(); queuePlayer = nil; playerLooper = nil
         windows.forEach { $0.orderOut(nil) }
         windows.removeAll()
         isShowing = false
@@ -147,50 +145,6 @@ final class AnimatedWallpaperController {
         w.isOpaque = true; w.hasShadow = false
         w.ignoresMouseEvents = true; w.backgroundColor = .black
         return w
-    }
-
-    private func attachVideo(to window: NSWindow, url: URL, screen: NSScreen) {
-        let view = NSView(frame: screen.frame)
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.black.cgColor
-
-        let item = AVPlayerItem(url: url)
-        let player = AVQueuePlayer(playerItem: item)
-        playerLooper = AVPlayerLooper(player: player, templateItem: item)
-        player.isMuted = true
-
-        let playerLayer = AVPlayerLayer(player: player)
-        let inset = -screen.frame.height * 0.05
-        playerLayer.frame = view.bounds.insetBy(dx: inset, dy: inset)
-        playerLayer.videoGravity = .resizeAspectFill
-        playerLayer.contentsScale = screen.backingScaleFactor
-        playerLayer.magnificationFilter = .trilinear
-        playerLayer.minificationFilter = .trilinear
-
-        if let vibranceFilter = CIFilter(name: "CIColorControls", parameters: [
-            kCIInputSaturationKey: 1.25,
-            kCIInputContrastKey: 1.08
-        ]) {
-            playerLayer.filters = [vibranceFilter]
-        }
-
-        let vignette = CAGradientLayer()
-        vignette.type = .radial
-        vignette.frame = view.bounds
-        vignette.colors = [
-            NSColor.clear.cgColor,
-            NSColor.black.withAlphaComponent(0.25).cgColor,
-            NSColor.black.withAlphaComponent(0.6).cgColor
-        ]
-        vignette.locations = [0.3, 0.7, 1.0]
-        vignette.startPoint = CGPoint(x: 0.5, y: 0.5)
-        vignette.endPoint = CGPoint(x: 1.0, y: 1.0)
-        view.layer?.addSublayer(playerLayer)
-        view.layer?.addSublayer(vignette)
-
-        window.contentView = view
-        player.play()
-        queuePlayer = player
     }
 }
 
@@ -437,7 +391,7 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
     }
 }
 
-// MARK: - AnimatedArtworkView (fluid waves + static album art)
+// MARK: - AnimatedArtworkView (fluid waves + centered album art OR canvas video)
 
 final class AnimatedArtworkView: NSView {
 
@@ -446,8 +400,16 @@ final class AnimatedArtworkView: NSView {
 
     private(set) weak var fluidView: FluidWaveView?
 
-    // Stored so stopAllAnimations() can reach them from AnimatedWallpaperController.dismiss().
+    // Stored so stopAllAnimations() can reach them from dismiss().
     private var glowLayer: CAGradientLayer?
+
+    // Canvas video player — kept alive for the duration of a track.
+    // Replaced (previous one torn down) on every song change that has a canvas.
+    private var canvasPlayer: AVQueuePlayer?
+    private var canvasLooper: AVPlayerLooper?
+    // The CALayer that hosts the AVPlayerLayer inside the overlay.
+    // Kept as a reference so we can swap it out on song changes.
+    private var mediaLayer: CALayer?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -457,30 +419,32 @@ final class AnimatedArtworkView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     // MARK: - Public: stop CA animations before this view is discarded
-    //
-    // Called by AnimatedWallpaperController before artViews.removeAll() on both
-    // dismiss() and dismissImmediate(). Removes the glow pulse animation so
-    // CoreAnimation stops ticking it immediately rather than on the next render cycle.
-    // Has zero effect on the running shader — FluidWaveView is an MTKView driven by
-    // CADisplayLink, not CoreAnimation, so removeAllAnimations() does not touch it.
+
     func stopAllAnimations() {
         glowLayer?.removeAllAnimations()
-        // Also walk all CA sublayers of the overlay view for completeness
+        stopCanvasPlayer()
         if subviews.count >= 2 {
             subviews[1].layer?.sublayers?.forEach { $0.removeAllAnimations() }
         }
     }
 
     /// Called both on first show AND on subsequent song changes.
-    func configure(with image: NSImage, scale: CGFloat) {
+    /// - Parameters:
+    ///   - image:      Album art — always provided; used for the fluid palette.
+    ///   - canvasURL:  When non-nil the looping video replaces the still art layer.
+    ///   - scale:      Backing scale factor of the target screen.
+    func configure(with image: NSImage, canvasURL: URL?, scale: CGFloat) {
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
 
         if fluidView == nil {
-            buildFullStack(cg: cg, scale: scale)
+            buildFullStack(cg: cg, canvasURL: canvasURL, scale: scale)
         } else {
-            updateArtworkOnly(cg: cg, scale: scale)
+            updateMediaLayer(cg: cg, canvasURL: canvasURL, scale: scale)
         }
 
+        // Always re-derive the palette from the album art image (even for canvas
+        // tracks) — the fluid background reacts to the artwork colours regardless
+        // of whether a video is playing in the frame.
         let capturedFluid = fluidView
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -494,14 +458,18 @@ final class AnimatedArtworkView: NSView {
 
     // MARK: - Private: Full Initial Build
 
-    private func buildFullStack(cg: CGImage, scale: CGFloat) {
+    private func buildFullStack(cg: CGImage, canvasURL: URL?, scale: CGFloat) {
         subviews.forEach { $0.removeFromSuperview() }
         layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
 
-        let artSize = min(bounds.width, bounds.height) * 0.38
+        let artSize   = min(bounds.width, bounds.height) * 0.38
         let artCenter = CGPoint(x: bounds.midX, y: bounds.midY)
-        let artFrame = CGRect(x: artCenter.x - artSize/2, y: artCenter.y - artSize/2,
-                              width: artSize, height: artSize)
+        let artFrame  = CGRect(
+            x: artCenter.x - artSize / 2,
+            y: artCenter.y - artSize / 2,
+            width: artSize,
+            height: artSize
+        )
         let corner = artSize * 0.06
 
         // 1. Fluid wave background (Metal GPU shader)
@@ -526,7 +494,7 @@ final class AnimatedArtworkView: NSView {
         overlay.autoresizingMask = [.width, .height]
         addSubview(overlay)
 
-        // 3. Ambient glow behind artwork
+        // 3. Ambient glow behind the media frame
         let glow = CAGradientLayer()
         glow.type = .radial
         glow.frame = artFrame.insetBy(dx: -artSize * 0.45, dy: -artSize * 0.45)
@@ -544,7 +512,7 @@ final class AnimatedArtworkView: NSView {
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         glow.add(pulse, forKey: "glowPulse")
 
-        // 4. Shadow beneath artwork
+        // 4. Drop shadow beneath the media frame
         let shadow = CALayer()
         shadow.frame = artFrame
         shadow.cornerRadius = corner
@@ -554,30 +522,121 @@ final class AnimatedArtworkView: NSView {
         shadow.shadowRadius = 30; shadow.shadowOpacity = 0.85
         overlay.layer?.addSublayer(shadow)
 
-        // 5. Album art — static, centered
-        let art = CALayer()
-        art.frame = artFrame
-        art.contents = cg
-        art.contentsGravity = .resizeAspectFill
-        art.cornerRadius = corner; art.masksToBounds = true
-        art.contentsScale = scale
-        overlay.layer?.addSublayer(art)
+        // 5. Media layer — either still album art or canvas video
+        let newMediaLayer = makeMediaLayer(
+            artFrame: artFrame,
+            corner: corner,
+            cg: cg,
+            canvasURL: canvasURL,
+            scale: scale
+        )
+        overlay.layer?.addSublayer(newMediaLayer)
+        mediaLayer = newMediaLayer
     }
 
     // MARK: - Private: Lightweight Song-Change Update
 
-    private func updateArtworkOnly(cg: CGImage, scale: CGFloat) {
+    /// Swaps only the media layer (still art ↔ canvas video) without rebuilding
+    /// the fluid background, glow, or shadow layers.
+    private func updateMediaLayer(cg: CGImage, canvasURL: URL?, scale: CGFloat) {
         guard subviews.count >= 2,
-              let overlayLayer = subviews[1].layer else { return }
+              let overlayLayer = subviews[1].layer,
+              let oldMedia = mediaLayer
+        else { return }
 
-        if let artLayer = overlayLayer.sublayers?.last {
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(0.4)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
-            artLayer.contents = cg
-            CATransaction.commit()
+        // Compute the same geometry as buildFullStack so sizes are consistent.
+        let artSize  = min(bounds.width, bounds.height) * 0.38
+        let artFrame = CGRect(
+            x: bounds.midX - artSize / 2,
+            y: bounds.midY - artSize / 2,
+            width: artSize,
+            height: artSize
+        )
+        let corner = artSize * 0.06
+
+        // Stop any running canvas before replacing.
+        stopCanvasPlayer()
+
+        let newMediaLayer = makeMediaLayer(
+            artFrame: artFrame,
+            corner: corner,
+            cg: cg,
+            canvasURL: canvasURL,
+            scale: scale
+        )
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.4)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        overlayLayer.replaceSublayer(oldMedia, with: newMediaLayer)
+        CATransaction.commit()
+
+        mediaLayer = newMediaLayer
+    }
+
+    // MARK: - Factory: media layer (shared by build and update paths)
+
+    /// Returns a CALayer that is either:
+    ///  • A plain CALayer containing the still album-art CGImage, or
+    ///  • An AVPlayerLayer hosting a silent looping canvas video.
+    /// Both are clipped to a rounded rect matching `artFrame` / `corner`.
+    private func makeMediaLayer(
+        artFrame: CGRect,
+        corner: CGFloat,
+        cg: CGImage,
+        canvasURL: URL?,
+        scale: CGFloat
+    ) -> CALayer {
+
+        if let url = canvasURL {
+            return makeCanvasLayer(url: url, artFrame: artFrame, corner: corner)
+        } else {
+            return makeStillArtLayer(cg: cg, artFrame: artFrame, corner: corner, scale: scale)
         }
     }
+
+    /// Builds and starts a looping AVPlayerLayer sized to artFrame.
+    private func makeCanvasLayer(url: URL, artFrame: CGRect, corner: CGFloat) -> CALayer {
+        let item   = AVPlayerItem(url: url)
+        let player = AVQueuePlayer(playerItem: item)
+        let looper = AVPlayerLooper(player: player, templateItem: item)
+        player.isMuted = true
+
+        // Store strong references so ARC keeps them alive.
+        canvasPlayer = player
+        canvasLooper = looper
+
+        let playerLayer = AVPlayerLayer(player: player)
+        playerLayer.frame = artFrame
+        playerLayer.videoGravity = .resizeAspectFill
+        playerLayer.cornerRadius = corner
+        playerLayer.masksToBounds = true
+
+        player.play()
+        return playerLayer
+    }
+
+    /// Builds a plain CALayer with the still album-art image.
+    private func makeStillArtLayer(cg: CGImage, artFrame: CGRect, corner: CGFloat, scale: CGFloat) -> CALayer {
+        let art = CALayer()
+        art.frame = artFrame
+        art.contents = cg
+        art.contentsGravity = .resizeAspectFill
+        art.cornerRadius = corner
+        art.masksToBounds = true
+        art.contentsScale = scale
+        return art
+    }
+
+    // MARK: - Canvas player teardown
+
+    private func stopCanvasPlayer() {
+        canvasPlayer?.pause()
+        canvasPlayer = nil
+        canvasLooper = nil
+    }
+
+    // MARK: - Glow colour update
 
     private func updateGlowColor(_ color: NSColor, in bounds: CGRect) {
         guard let glow = glowLayer else { return }
@@ -590,7 +649,7 @@ final class AnimatedArtworkView: NSView {
     // MARK: - Color Extraction (runs on background thread)
 
     private func extractPaletteAndDominant(from cg: CGImage, count: Int) -> ([NSColor], NSColor) {
-        let ci = CIImage(cgImage: cg)
+        let ci  = CIImage(cgImage: cg)
         let ext = ci.extent
         let ctx = Self.sharedCIContext
 
@@ -600,14 +659,19 @@ final class AnimatedArtworkView: NSView {
         var regions: [CGRect] = []
         for row in 0..<rows {
             for col in 0..<cols {
-                regions.append(CGRect(x: ext.minX + CGFloat(col) * cellW,
-                                      y: ext.minY + CGFloat(row) * cellH,
-                                      width: cellW, height: cellH))
+                regions.append(CGRect(
+                    x: ext.minX + CGFloat(col) * cellW,
+                    y: ext.minY + CGFloat(row) * cellH,
+                    width: cellW, height: cellH
+                ))
             }
         }
-        let centerCrop = CGRect(x: ext.minX + ext.width * 0.25,
-                                y: ext.minY + ext.height * 0.25,
-                                width: ext.width * 0.5, height: ext.height * 0.5)
+        let centerCrop = CGRect(
+            x: ext.minX + ext.width  * 0.25,
+            y: ext.minY + ext.height * 0.25,
+            width: ext.width  * 0.5,
+            height: ext.height * 0.5
+        )
         regions.append(centerCrop)
 
         var sampled: [(r: CGFloat, g: CGFloat, b: CGFloat)] = []
@@ -623,20 +687,21 @@ final class AnimatedArtworkView: NSView {
             sampled.append((CGFloat(px[0])/255, CGFloat(px[1])/255, CGFloat(px[2])/255))
         }
 
-        let fallbackPalette: [NSColor] = [.systemPurple, .systemBlue, .systemTeal, .systemIndigo, .systemPink]
-        let fallbackDominant: NSColor = .gray
+        let fallbackPalette:  [NSColor] = [.systemPurple, .systemBlue, .systemTeal, .systemIndigo, .systemPink]
+        let fallbackDominant: NSColor   = .gray
 
-        guard !sampled.isEmpty else {
-            return (fallbackPalette, fallbackDominant)
-        }
+        guard !sampled.isEmpty else { return (fallbackPalette, fallbackDominant) }
 
         let centerSample = sampled.last ?? sampled[0]
-        let dominantColor = NSColor(red: centerSample.r, green: centerSample.g,
-                                    blue: centerSample.b, alpha: 1)
+        let dominantColor = NSColor(
+            red:   centerSample.r,
+            green: centerSample.g,
+            blue:  centerSample.b,
+            alpha: 1
+        )
 
         var picked: [Int] = []
-        let startIdx = sampled.count - 1
-        picked.append(startIdx)
+        picked.append(sampled.count - 1)  // start from center sample
 
         while picked.count < min(count, sampled.count) {
             var bestIdx = -1
@@ -650,23 +715,19 @@ final class AnimatedArtworkView: NSView {
                 }.min() ?? 0
                 if minDist > bestMinDist { bestMinDist = minDist; bestIdx = i }
             }
-            if bestIdx >= 0 { picked.append(bestIdx) }
-            else { break }
+            if bestIdx >= 0 { picked.append(bestIdx) } else { break }
         }
 
         var colors: [NSColor] = picked.map { idx in
-            let c = sampled[idx]
+            let c    = sampled[idx]
             let base = NSColor(red: c.r, green: c.g, blue: c.b, alpha: 1)
             guard let rgb = base.usingColorSpace(.deviceRGB) else { return base }
             var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             rgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
             return NSColor(hue: h, saturation: min(s * 1.2, 1.0), brightness: b, alpha: 1)
         }
-
         while colors.count < count { colors.append(colors.last ?? .systemPurple) }
-        let finalPalette = diversifyIfNeeded(colors)
-
-        return (finalPalette, dominantColor)
+        return (diversifyIfNeeded(colors), dominantColor)
     }
 
     private func diversifyIfNeeded(_ colors: [NSColor]) -> [NSColor] {
@@ -680,23 +741,21 @@ final class AnimatedArtworkView: NSView {
             hues.append(h); brights.append(b)
         }
 
-        let hueSpread = (hues.max() ?? 0) - (hues.min() ?? 0)
+        let hueSpread    = (hues.max() ?? 0) - (hues.min() ?? 0)
         let brightSpread = (brights.max() ?? 0) - (brights.min() ?? 0)
         let effectiveHueSpread = min(hueSpread, 1.0 - hueSpread)
 
-        if effectiveHueSpread > 0.08 || brightSpread > 0.15 {
-            return colors
-        }
+        if effectiveHueSpread > 0.08 || brightSpread > 0.15 { return colors }
 
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         first.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
 
         return [
-            NSColor(hue: h, saturation: s, brightness: b, alpha: 1),
-            NSColor(hue: fmod(h + 0.04, 1.0), saturation: max(s - 0.1, 0.2), brightness: min(b + 0.15, 1.0), alpha: 1),
-            NSColor(hue: fmod(h - 0.05 + 1.0, 1.0), saturation: min(s + 0.15, 1.0), brightness: max(b - 0.25, 0.15), alpha: 1),
-            NSColor(hue: fmod(h + 0.08, 1.0), saturation: min(s + 0.1, 1.0), brightness: b, alpha: 1),
-            NSColor(hue: h, saturation: max(s - 0.3, 0.05), brightness: min(b + 0.25, 1.0), alpha: 1),
+            NSColor(hue: h,                        saturation: s,               brightness: b,               alpha: 1),
+            NSColor(hue: fmod(h + 0.04, 1.0),      saturation: max(s-0.1, 0.2), brightness: min(b+0.15, 1.0), alpha: 1),
+            NSColor(hue: fmod(h - 0.05 + 1.0, 1.0),saturation: min(s+0.15,1.0), brightness: max(b-0.25, 0.15),alpha: 1),
+            NSColor(hue: fmod(h + 0.08, 1.0),      saturation: min(s+0.1, 1.0), brightness: b,               alpha: 1),
+            NSColor(hue: h,                        saturation: max(s-0.3, 0.05), brightness: min(b+0.25, 1.0), alpha: 1),
         ]
     }
 
