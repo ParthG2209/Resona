@@ -32,7 +32,12 @@ Resona is transitioning from a simple macOS background utility into a highly imm
 *   **Constraint Avoidance:** To bypass macOS's draconian `ScreenCaptureKit` permissions and keep the app lightweight, Resona will *not* listen to actual system audio.
 *   **Implementation:** The app fetches the **BPM and Tempo** from the Spotify Web API. An internal `CADisplayLink` mathematically pulses the fluid shader in time with the fetched BPM, creating the illusion of a highly reactive visualizer.
 
-### 2.5 Apple Music Parity via Spotify's Backend (FIXED)
+### 2.5 Visual AutoMix (The Continuous DJ Stream)
+*   **The Inspiration:** Apple Music's AutoMix blends audio together like a DJ—analyzing tempo, rhythm, and key to actively reshape the transition so songs flow as a single uninterrupted stream, rather than simply overlapping flat audio gaps.
+*   **Our North Star (Visual Translation):** Instead of just fading out a flat UI layer or abruptly dropping to the macOS desktop when a song changes, Resona will actively reshape the math in the renderer.
+*   **Implementation:** During the track transition, the Metal engine will use double-buffering. The fluid's colors and mathematical noise from Song A will seamlessly swirl, bleed, and morph natively into the colors of Song B over a calculated duration before completely taking over. It will look like a single continuous ocean of liquid reacting to the DJ mix.
+
+### 2.6 Apple Music Parity via Spotify's Backend (FIXED)
 *   **Problem:** iTunes Search API frequently returns incorrect album art (e.g., right song, wrong album/compilation).
 *   **Solution:** When an Apple Music track plays, Resona takes the Title and Artist and executes a search against the **Spotify Web API**.
 *   **Benefits:**
@@ -40,11 +45,11 @@ Resona is transitioning from a simple macOS background utility into a highly imm
     *   **Apple Music users get Canvas Videos!** The Spotify search returns the Canvas URL, allowing Apple Music to display the looping videos.
     *   Access to Spotify's Audio Features (BPM, acousticness) for the fluid texture math and beat reactivity.
 
-### 2.6 The "Invisible" Desktop Info Panel
+### 2.7 The "Invisible" Desktop Info Panel
 *   **Design:** The centered album art / canvas on the desktop remains cleanly visual. However, hovering the mouse cursor over the fluid art gracefully fades in a localized, premium glassmorphic overlay.
 *   **Content:** This overlay displays beautifully formatted typography detailing the exact Song Title, Artist, and Album Name. It acts as a passive "What's playing?" peek without permanently cluttering the desktop with buttons.
 
-### 2.7 Menu Bar Command Center Redesign
+### 2.8 Menu Bar Command Center Redesign
 *   **Design:** A complete structural and visual overhaul of the Resona dropdown menu. It avoids duplicating macOS's native mini-player (removing redundant, heavy playback buttons).
 *   **Purpose:** The menu bar drop-down becomes the dedicated power-user and social hub. 
 *   **Features:**
@@ -52,13 +57,13 @@ Resona is transitioning from a simple macOS background utility into a highly imm
     *   **The Dash (Power Controls):** Native UI toggles for adjusting background fluid intensity, forcing "Deep Sleep / Battery Saver" modes, and enabling/disabling Desktop Lyrics.
     *   **The Social Minimalist:** One-click rich sharing integrations (e.g., "Copy Spotify URL", "Share to X", or Last.fm scrobbling hooks).
 
-### 2.8 Comprehensive Multi-Monitor Support
+### 2.9 Comprehensive Multi-Monitor Support
 *   **Design Goal:** Ensuring the visual experience translates immaculately to developers and power users with dual monitors or ultra-wide external displays.
 *   **Considered Implementations (TBD):**
     1.  **The Clone (Mirrored Sync):** Resona actively mirrors the exact same fluid canvas and centered album art squarely on all connected screens. All visual transitions fire globally at the exact exact moment.
     2.  **The Extension (Panoramic Fluid):** The mathematical fluid shader mathematically spans *across* all monitors as a single unbroken, massive visual ecosystem. However, heavy media (the 9:16 Canvas video or 1:1 Album art) remains centered solely on the primary display.
 
-### 2.9 Deep macOS Ecosystem Integrations
+### 2.10 Deep macOS Ecosystem Integrations
 *   **The Native Screensaver:** Resona acts as an official macOS Screensaver module. When the computer is locked or idle, the fluid and album art continue to animate as a living gallery piece for the room.
 *   **Apple Focus Filters:** Direct integration with macOS Focus Modes. For example, triggering "Do Not Disturb" or "Work Focus" can automatically tell Resona to enter a muted, distraction-free aesthetic (dimming colors, lowering FPS, and pausing moving 9:16 canvases).
 *   **Siri & Shortcuts App Hooks:** Exposing Resona's power toggles to the native Shortcuts app. This allows users to build robust automations (e.g., "When AirPods connect, launch Spotify and start Resona on High Intensity").
