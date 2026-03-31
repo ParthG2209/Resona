@@ -23,6 +23,8 @@ struct SettingsView: View {
 
 private struct GeneralTab: View {
     @StateObject private var settings = AppSettings.shared
+    @ObservedObject private var spotify = SpotifyService.shared
+    @ObservedObject private var appleMusic = AppleMusicService.shared
 
     var body: some View {
         Form {
@@ -46,17 +48,17 @@ private struct GeneralTab: View {
             Section("Connections") {
                 ServiceRow(
                     title: "Spotify",
-                    isConnected: AppSettings.shared.spotifyConnected,
+                    isConnected: spotify.isAuthenticated,
                     onConnect: {
-                        Task.detached {
-                            SpotifyService.shared.connect { _ in }
-                        }
+                        SpotifyService.shared.connect { _ in }
                     },
-                    onDisconnect: { SpotifyService.shared.disconnect() }
+                    onDisconnect: {
+                        SpotifyService.shared.disconnect()
+                    }
                 )
                 ServiceRow(
                     title: "Apple Music",
-                    isConnected: AppSettings.shared.appleMusicConnected,
+                    isConnected: appleMusic.isAuthenticated,
                     onConnect: { Task { await AppleMusicService.shared.connect() } },
                     onDisconnect: { AppleMusicService.shared.disconnect() }
                 )
