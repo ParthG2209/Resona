@@ -30,6 +30,15 @@ This document outlines the architectural overhauls required to fix the five core
     *   We will implement an aggressive **Deep Sleep Mode**. If the user explicitly quits Spotify or Apple Music, Resona catches the `NSWorkspace.didTerminateApplicationNotification`. 
     *   Resona actively destroys the visual layer, sleeps at 0% battery draw, and spins up an observer. When the music app is reopened, the visual pipeline rebuilds itself perfectly with zero user interaction.
 
+### Issue 6: CPU/GPU Bloat & Background Power Draw
+*   **Context:** The app continuously renders Metal fluid shaders and pulses UI layers at 60fps even when paused, and runs redundant 2-second AppleScript/Network polling.
+*   **Solution (Absolute Zero-Idle Footprint):**
+    1.  **3-Tier Engine Modes:** Introduce toggleable modes (Static, Normal/Fluid, Fully-Fledged/Canvas) to grant the user explicit control over rendering intensity.
+    2.  **GPU Occlusion / Sleep Hibernation:** Bind the Metal engine's `isPaused` flag to the `playbackState`, `NSWorkspace.screensDidSleepNotification`, system lock events, and window `occlusionState`. If the screen is off, locked, or completely covered by a fullscreen app, the GPU and video decoders drop to **0%**.
+    3.  **Nuke AppleScript Polling:** Delete the heavy 2-second AppleScript loop in `AppleMusicService` completely, relying entirely on the native, zero-cost `com.apple.Music.playerInfo` push notifications.
+    4.  **Smart Spotify Polling:** Shift to exponential network backoff, capping at 15s polls when paused. If `com.spotify.client` is quit, polling suspends completely via `NSWorkspace`.
+    5.  **Destroy WindowServer Thrashing:** Remove the infinite `CABasicAnimation` pulsing the ambient album art glow. A clean, static drop-shadow looks just as premium and completely halts 60fps WindowServer repainting when the fluid is paused.
+
 ---
 
 ## 3. Brainstorming Decision Log
@@ -39,3 +48,6 @@ This document outlines the architectural overhauls required to fix the five core
 | **02** | Visual Flashes | **AutoMix Double-Buffering** | Taking a static screenshot (Freeze Frame) or Fading to a solid color. | Crossfading two living textures is intensive but makes the app feel like a true dynamic ocean. The desktop must remain entirely hidden. |
 | **03** | Rapid Skips | **Patient Listener (Strict Debounce)** | Instant response with aggressive network cancellation. | A 0.8s strict debounce cleanly protects the Network/GPU from thrashing when the user is trying to find a song they like. |
 | **04** | Spotify Restarts | **Deep Sleep Hibernation** | Blindly auto-retrying failed Combine publishers. | Sleeping when not in use is macOS best practice. Destroying and properly rebuilding the visual pipeline guarantees no memory leaks over days of uptime. |
+| **05** | High GPU Idle | **Pause Engine on Occlusion / Stop** | Letting animation run invisibly in background. | If music is paused, or a fullscreen window (Xcode/Chrome) covers the wallpaper, the GPU must instantly drop to 0W usage. |
+| **06** | Heavy Polling | **Push Notifications & 15s Backoff** | Constant 2s polling loops via AppleScript. | Gutting AppleScript completely in favor of native push notifications, and enforcing a 15s max exponential backoff on Spotify bounds logic to absolute essentials. |
+| **07** | WindowServer CPU | **Static Ambient Glow** | Infinite `CABasicAnimation` pulsing. | Continuously animating opacity forces WindowServer to composite the screen at 60fps forever. A static glow hits 0 CPU and looks visually identical. |
