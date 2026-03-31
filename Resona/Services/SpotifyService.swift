@@ -46,7 +46,20 @@ final class SpotifyService: ObservableObject {
     private var currentPollInterval: TimeInterval = 3.0
     private var rateLimitBackoffTask: DispatchWorkItem?
 
-    // Use a dedicated URLSession with no caching to avoid stale responses
+    // MARK: - Exposed for SpotifySearchService (Priority 1 token reuse)
+    //
+    // SpotifySearchService checks this first. If the user already has Spotify
+    // connected for playback, their token is reused for Apple Music lookups —
+    // no second login needed. Returns nil if expired or not authenticated.
+    var currentAccessToken: String? {
+        guard isAuthenticated,
+              let token = accessToken,
+              let expiry = tokenExpiryDate,
+              Date() < expiry.addingTimeInterval(-60)
+        else { return nil }
+        return token
+    }
+
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -127,29 +140,15 @@ final class SpotifyService: ObservableObject {
         print("[Resona] POSTing to \(Constants.Spotify.Endpoints.token)")
 
         session.dataTask(with: req) { [weak self] data, response, error in
-            if let error {
-                print("[Resona] Token exchange network error: \(error)")
-                completion(.failure(error))
-                return
-            }
-            if let http = response as? HTTPURLResponse {
-                print("[Resona] Token exchange HTTP status: \(http.statusCode)")
-            }
-            guard let data else {
-                print("[Resona] Token exchange: no data returned")
-                completion(.failure(SpotifyError.tokenParseFailed))
-                return
-            }
+            if let error { print("[Resona] Token exchange network error: \(error)"); completion(.failure(error)); return }
+            if let http = response as? HTTPURLResponse { print("[Resona] Token exchange HTTP status: \(http.statusCode)") }
+            guard let data else { completion(.failure(SpotifyError.tokenParseFailed)); return }
             let raw = String(data: data, encoding: .utf8) ?? "<unreadable>"
             print("[Resona] Token exchange response: \(raw.prefix(200))")
-
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let accessToken = json["access_token"] as? String,
                   let expiresIn   = json["expires_in"] as? Int
-            else {
-                completion(.failure(SpotifyError.tokenParseFailed))
-                return
-            }
+            else { completion(.failure(SpotifyError.tokenParseFailed)); return }
             let refreshToken = json["refresh_token"] as? String
             self?.storeTokens(accessToken: accessToken, refreshToken: refreshToken, expiresIn: expiresIn)
             completion(.success(()))
@@ -159,11 +158,8 @@ final class SpotifyService: ObservableObject {
     private func refreshAccessToken(completion: @escaping (Result<Void, Error>) -> Void) {
         guard let refresh = refreshToken,
               let url = URL(string: Constants.Spotify.Endpoints.token)
-        else {
-            print("[Resona] Refresh failed: no refresh token stored")
-            completion(.failure(SpotifyError.noRefreshToken))
-            return
-        }
+        else { completion(.failure(SpotifyError.noRefreshToken)); return }
+
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -172,24 +168,14 @@ final class SpotifyService: ObservableObject {
         req.httpBody = ["grant_type": "refresh_token", "refresh_token": refresh].formEncoded()
 
         print("[Resona] Refreshing access token...")
-
         session.dataTask(with: req) { [weak self] data, response, error in
-            if let error {
-                print("[Resona] Token refresh network error: \(error)")
-                completion(.failure(error))
-                return
-            }
-            if let http = response as? HTTPURLResponse {
-                print("[Resona] Token refresh HTTP status: \(http.statusCode)")
-            }
+            if let error { completion(.failure(error)); return }
+            if let http = response as? HTTPURLResponse { print("[Resona] Token refresh HTTP status: \(http.statusCode)") }
             guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let accessToken = json["access_token"] as? String,
                   let expiresIn   = json["expires_in"] as? Int
-            else {
-                completion(.failure(SpotifyError.tokenParseFailed))
-                return
-            }
+            else { completion(.failure(SpotifyError.tokenParseFailed)); return }
             let refreshToken = json["refresh_token"] as? String
             self?.storeTokens(accessToken: accessToken, refreshToken: refreshToken, expiresIn: expiresIn)
             print("[Resona] Token refresh SUCCESS")
@@ -230,10 +216,9 @@ final class SpotifyService: ObservableObject {
         stopPolling()
         pollCount204 = 0
         hasDiagnosed = false
-        currentPollInterval = 3.0  // Start at 3s — safe for Spotify's ~30 req/min limit
+        currentPollInterval = 3.0
         print("[Resona] Starting Spotify polling every \(currentPollInterval)s")
         schedulePoll(interval: currentPollInterval)
-        // Fire immediately so we don't wait for the first interval
         fetchCurrentlyPlaying()
     }
 
@@ -244,7 +229,6 @@ final class SpotifyService: ObservableObject {
         rateLimitBackoffTask = nil
     }
 
-    /// Reschedule the poll timer at the given interval
     private func schedulePoll(interval: TimeInterval) {
         pollTimer?.invalidate()
         currentPollInterval = interval
@@ -253,16 +237,13 @@ final class SpotifyService: ObservableObject {
         }
     }
 
-    /// Pause polling for `duration` seconds, then resume at a slower rate
     private func backOffPolling(retryAfter: TimeInterval) {
         print("[Resona] ⏸ Rate limited — pausing polls for \(Int(retryAfter))s")
         stopPolling()
         let task = DispatchWorkItem { [weak self] in
             guard let self, self.isAuthenticated else { return }
             print("[Resona] ▶️ Resuming polling at 5s interval after rate limit")
-            DispatchQueue.main.async {
-                self.schedulePoll(interval: 5.0)
-            }
+            DispatchQueue.main.async { self.schedulePoll(interval: 5.0) }
         }
         rateLimitBackoffTask = task
         DispatchQueue.main.asyncAfter(deadline: .now() + retryAfter, execute: task)
@@ -273,23 +254,13 @@ final class SpotifyService: ObservableObject {
     private func fetchCurrentlyPlaying() {
         ensureValidToken { [weak self] result in
             guard let self else { return }
-            switch result {
-            case .failure(let e):
-                print("[Resona] ensureValidToken failed: \(e)")
-                return
-            case .success:
-                break
+            if case .failure(let e) = result {
+                print("[Resona] ensureValidToken failed: \(e)"); return
             }
-            guard let token = self.accessToken else {
-                print("[Resona] fetchCurrentlyPlaying: no access token after ensureValidToken succeeded — this is a bug")
-                return
-            }
+            guard let token = self.accessToken else { return }
 
-            // Build URL with additional_types to ensure the API returns track data
             var components = URLComponents(string: Constants.Spotify.Endpoints.currentlyPlaying)!
-            components.queryItems = [
-                URLQueryItem(name: "additional_types", value: "track,episode")
-            ]
+            components.queryItems = [URLQueryItem(name: "additional_types", value: "track,episode")]
             guard let url = components.url else { return }
 
             var req = URLRequest(url: url)
@@ -297,12 +268,8 @@ final class SpotifyService: ObservableObject {
 
             self.session.dataTask(with: req) { [weak self] data, response, error in
                 guard let self else { return }
-                if let error {
-                    print("[Resona] Spotify poll network error: \(error)")
-                    return
-                }
+                if let error { print("[Resona] Spotify poll network error: \(error)"); return }
                 if let http = response as? HTTPURLResponse {
-                    // --- 429 Rate Limit ---
                     if http.statusCode == 429 {
                         let retryAfter = http.value(forHTTPHeaderField: "Retry-After")
                             .flatMap { TimeInterval($0) } ?? 30.0
@@ -310,14 +277,11 @@ final class SpotifyService: ObservableObject {
                         DispatchQueue.main.async { self.backOffPolling(retryAfter: retryAfter) }
                         return
                     }
-
-                    // --- 204 No Content (nothing playing) ---
                     if http.statusCode == 204 {
                         self.pollCount204 += 1
                         if self.pollCount204 == 1 || self.pollCount204 % 30 == 0 {
-                            print("[Resona] Spotify poll HTTP 204 (no active playback) — count: \(self.pollCount204)")
+                            print("[Resona] Spotify poll HTTP 204 — count: \(self.pollCount204)")
                         }
-                        // Slow down when nothing is playing (save API quota)
                         if self.pollCount204 == 3 && self.currentPollInterval < 5.0 {
                             DispatchQueue.main.async {
                                 print("[Resona] Nothing playing — slowing poll to 5s")
@@ -331,8 +295,6 @@ final class SpotifyService: ObservableObject {
                         DispatchQueue.main.async { self.handleNothingPlaying() }
                         return
                     }
-
-                    // --- Got content — speed up if we were slow ---
                     if self.pollCount204 > 0 && self.currentPollInterval > 3.0 {
                         DispatchQueue.main.async {
                             print("[Resona] Playback detected — speeding poll to 3s")
@@ -340,21 +302,16 @@ final class SpotifyService: ObservableObject {
                         }
                     }
                     self.pollCount204 = 0
-
-                    if http.statusCode != 200 {
-                        print("[Resona] Spotify poll HTTP \(http.statusCode)")
-                    }
+                    if http.statusCode != 200 { print("[Resona] Spotify poll HTTP \(http.statusCode)") }
                     if http.statusCode == 401 {
                         print("[Resona] 401 — token expired, will refresh on next poll")
-                        self.tokenExpiryDate = Date() // force refresh next time
-                        return
+                        self.tokenExpiryDate = Date(); return
                     }
                 }
                 guard let data else { return }
                 guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     let raw = String(data: data, encoding: .utf8) ?? "<unreadable>"
-                    print("[Resona] Spotify poll: failed to parse JSON — \(raw.prefix(200))")
-                    return
+                    print("[Resona] Spotify poll: failed to parse JSON — \(raw.prefix(200))"); return
                 }
                 DispatchQueue.main.async { self.handlePlaybackResponse(json) }
             }.resume()
@@ -363,79 +320,43 @@ final class SpotifyService: ObservableObject {
 
     // MARK: - Diagnostics
 
-    /// Runs after 10 consecutive 204s to figure out why Spotify sees no active playback.
-    /// Hits /v1/me (user profile) and /v1/me/player (full player state) for more info.
     private func runDiagnostics(token: String) {
         print("[Resona] ===== RUNNING SPOTIFY DIAGNOSTICS =====")
         print("[Resona] Token prefix: \(String(token.prefix(12)))...")
         print("[Resona] Token expiry: \(tokenExpiryDate?.description ?? "nil")")
 
-        // 1) Check /v1/me — which account is this token for?
         if let meURL = URL(string: "https://api.spotify.com/v1/me") {
             var meReq = URLRequest(url: meURL)
             meReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             session.dataTask(with: meReq) { data, response, error in
-                if let error {
-                    print("[Resona] DIAG /v1/me error: \(error)")
-                    return
-                }
-                if let http = response as? HTTPURLResponse {
-                    print("[Resona] DIAG /v1/me HTTP \(http.statusCode)")
-                }
-                if let data,
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let error { print("[Resona] DIAG /v1/me error: \(error)"); return }
+                if let http = response as? HTTPURLResponse { print("[Resona] DIAG /v1/me HTTP \(http.statusCode)") }
+                if let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     let displayName = json["display_name"] as? String ?? "<unknown>"
-                    let email = json["email"] as? String ?? "<no email scope>"
                     let product = json["product"] as? String ?? "<unknown>"
-                    let country = json["country"] as? String ?? "<unknown>"
-                    print("[Resona] DIAG Account: \(displayName) (\(email))")
-                    print("[Resona] DIAG Product: \(product), Country: \(country)")
-                } else if let data {
-                    let raw = String(data: data, encoding: .utf8) ?? "<unreadable>"
-                    print("[Resona] DIAG /v1/me raw: \(raw.prefix(300))")
+                    print("[Resona] DIAG Account: \(displayName), Product: \(product)")
                 }
             }.resume()
         }
 
-        // 2) Check /v1/me/player — full player state (different from currently-playing)
         if let playerURL = URL(string: Constants.Spotify.Endpoints.playbackState) {
             var playerReq = URLRequest(url: playerURL)
             playerReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             session.dataTask(with: playerReq) { data, response, error in
-                if let error {
-                    print("[Resona] DIAG /v1/me/player error: \(error)")
-                    return
-                }
+                if let error { print("[Resona] DIAG /v1/me/player error: \(error)"); return }
                 if let http = response as? HTTPURLResponse {
                     print("[Resona] DIAG /v1/me/player HTTP \(http.statusCode)")
                     if http.statusCode == 204 {
-                        print("[Resona] DIAG /v1/me/player also 204 — Spotify sees NO active device at all")
-                        print("[Resona] DIAG ⚠️ Make sure you have Spotify open and playing on this Mac")
-                        print("[Resona] DIAG ⚠️ If using a different device (phone/web), that should also work")
-                        print("[Resona] DIAG ⚠️ Try pausing and resuming playback to wake the Spotify Connect session")
+                        print("[Resona] DIAG /v1/me/player also 204 — no active device")
+                        print("[Resona] DIAG ⚠️ Make sure Spotify is open and playing on this Mac")
                         return
                     }
                 }
-                if let data,
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     let isPlaying = json["is_playing"] as? Bool ?? false
-                    let shuffleState = json["shuffle_state"] as? Bool
                     let deviceDict = json["device"] as? [String: Any]
                     let deviceName = deviceDict?["name"] as? String ?? "<no device>"
-                    let deviceType = deviceDict?["type"] as? String ?? "<unknown>"
-                    let isActive = deviceDict?["is_active"] as? Bool ?? false
-                    print("[Resona] DIAG Player state: is_playing=\(isPlaying), shuffle=\(shuffleState ?? false)")
-                    print("[Resona] DIAG Device: \(deviceName) (\(deviceType)), active=\(isActive)")
-
-                    if let item = json["item"] as? [String: Any] {
-                        let trackName = item["name"] as? String ?? "<unknown>"
-                        print("[Resona] DIAG Track: \(trackName)")
-                    } else {
-                        print("[Resona] DIAG No track item in player state")
-                    }
-                } else if let data {
-                    let raw = String(data: data, encoding: .utf8) ?? "<unreadable>"
-                    print("[Resona] DIAG /v1/me/player raw: \(raw.prefix(500))")
+                    print("[Resona] DIAG Player: is_playing=\(isPlaying), device=\(deviceName)")
                 }
                 print("[Resona] ===== END SPOTIFY DIAGNOSTICS =====")
             }.resume()
@@ -447,9 +368,7 @@ final class SpotifyService: ObservableObject {
         playbackState = isPlaying ? .playing : .paused
 
         guard let item = json["item"] as? [String: Any] else {
-            print("[Resona] handlePlaybackResponse: no item in response (nothing playing or private session)")
-            handleNothingPlaying()
-            return
+            handleNothingPlaying(); return
         }
 
         let id         = item["id"] as? String ?? UUID().uuidString
@@ -458,53 +377,38 @@ final class SpotifyService: ObservableObject {
         let progressMs = json["progress_ms"] as? Int ?? 0
 
         let artists = (item["artists"] as? [[String: Any]] ?? [])
-            .compactMap { $0["name"] as? String }
-            .joined(separator: ", ")
+            .compactMap { $0["name"] as? String }.joined(separator: ", ")
 
         let album = item["album"] as? [String: Any]
         let albumName = album?["name"] as? String ?? "Unknown Album"
 
         let images = (album?["images"] as? [[String: Any]] ?? [])
             .compactMap { img -> (Int, String)? in
-                guard let url = img["url"] as? String,
-                      let w   = img["width"] as? Int else { return nil }
+                guard let url = img["url"] as? String, let w = img["width"] as? Int else { return nil }
                 return (w, url)
-            }
-            .sorted { $0.0 > $1.0 }
+            }.sorted { $0.0 > $1.0 }
 
         let artworkURL = images.first(where: { $0.0 >= 300 }).flatMap { URL(string: $0.1) }
                       ?? images.first.flatMap { URL(string: $0.1) }
 
         print("[Resona] Now playing: \(name) by \(artists) | artwork: \(artworkURL?.absoluteString ?? "none")")
 
-        let track = Track(
-            id: id, name: name, artist: artists, album: albumName,
-            artworkURL: artworkURL, canvasURL: nil,
-            durationMs: durationMs, progressMs: progressMs, source: .spotify
-        )
+        let track = Track(id: id, name: name, artist: artists, album: albumName,
+                          artworkURL: artworkURL, canvasURL: nil,
+                          durationMs: durationMs, progressMs: progressMs, source: .spotify)
 
-        // Only proceed if this is a new track
         guard track != currentTrack else { return }
 
-        // Try to fetch Spotify Canvas (animated video) for this track
         if AppSettings.shared.showAnimatedWallpapers, let token = accessToken {
             SpotifyCanvasService.shared.fetchCanvasURL(trackID: id, accessToken: token) { [weak self] canvasURL in
                 guard let self else { return }
-                let finalTrack: Track
-                if let canvasURL {
-                    // Create a new Track with the Canvas URL
-                    finalTrack = Track(
-                        id: id, name: name, artist: artists, album: albumName,
-                        artworkURL: artworkURL, canvasURL: canvasURL,
-                        durationMs: durationMs, progressMs: progressMs, source: .spotify
-                    )
-                    print("[Resona] Canvas URL attached for \(name)")
-                } else {
-                    finalTrack = track
-                }
-                DispatchQueue.main.async {
-                    self.scheduleTrackUpdate(finalTrack)
-                }
+                let finalTrack = canvasURL != nil
+                    ? Track(id: id, name: name, artist: artists, album: albumName,
+                            artworkURL: artworkURL, canvasURL: canvasURL,
+                            durationMs: durationMs, progressMs: progressMs, source: .spotify)
+                    : track
+                if canvasURL != nil { print("[Resona] Canvas URL attached for \(name)") }
+                DispatchQueue.main.async { self.scheduleTrackUpdate(finalTrack) }
             }
         } else {
             scheduleTrackUpdate(track)
@@ -531,17 +435,12 @@ final class SpotifyService: ObservableObject {
 
     private func ensureValidToken(completion: @escaping (Result<Void, Error>) -> Void) {
         guard accessToken != nil else {
-            print("[Resona] ensureValidToken: no access token at all")
-            completion(.failure(SpotifyError.noAccessToken))
-            return
+            completion(.failure(SpotifyError.noAccessToken)); return
         }
         guard let expiry = tokenExpiryDate else {
-            // Token exists but no expiry stored — assume valid
-            completion(.success(()))
-            return
+            completion(.success(())); return
         }
         if Date() >= expiry.addingTimeInterval(-60) {
-            print("[Resona] Token expiring soon, refreshing...")
             refreshAccessToken(completion: completion)
         } else {
             completion(.success(()))
