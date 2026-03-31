@@ -3,8 +3,6 @@ import Combine
 
 // MARK: - MusicDetectionService
 
-/// Central coordinator. Listens to both SpotifyService and AppleMusicService,
-/// decides which source wins, and drives WallpaperManager updates.
 final class MusicDetectionService: ObservableObject {
 
     static let shared = MusicDetectionService()
@@ -15,8 +13,8 @@ final class MusicDetectionService: ObservableObject {
 
     // MARK: - Sub-services
 
-    let spotify     = SpotifyService.shared
-    let appleMusic  = AppleMusicService.shared
+    let spotify    = SpotifyService.shared
+    let appleMusic = AppleMusicService.shared
 
     // MARK: - Published State
 
@@ -30,6 +28,14 @@ final class MusicDetectionService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let wallpaperManager = WallpaperManager.shared
 
+    // Guards appleMusicConnectionChanged() from calling startMonitoring() repeatedly.
+    // Apple Music monitoring is always-on once started — there is no reason to restart
+    // it unless it was explicitly stopped. Without this guard, every call to
+    // appleMusicConnectionChanged() (which can fire from multiple paths) restarts the
+    // poll timer and the workspace observers, producing the repeated log spam seen in
+    // the debug output.
+    private var appleMusicMonitoringActive = false
+
     // MARK: - Lifecycle
 
     func startMonitoring() {
@@ -39,25 +45,36 @@ final class MusicDetectionService: ObservableObject {
             spotify.startPolling()
         }
 
-        // Apple Music uses local AppleScript + notifications — no auth needed.
-        // Always start monitoring regardless of appleMusicConnected flag.
-        print("[Resona] Starting Apple Music monitoring (always-on, no auth required)")
-        appleMusic.startMonitoring()
+        // Apple Music monitoring starts unconditionally — it uses local AppleScript
+        // and distributed notifications, no network auth required.
+        if !appleMusicMonitoringActive {
+            print("[Resona] Starting Apple Music monitoring")
+            appleMusic.startMonitoring()
+            appleMusicMonitoringActive = true
+        }
     }
 
-    /// Call this when Apple Music connection state changes mid-session
+    /// Called when Apple Music connection state changes mid-session.
+    /// Guarded so startMonitoring() is not called redundantly.
     func appleMusicConnectionChanged() {
         if AppSettings.shared.appleMusicConnected {
+            guard !appleMusicMonitoringActive else {
+                print("[Resona] MusicDetection: Apple Music already monitoring — skipping redundant start")
+                return
+            }
             Logger.info("MusicDetection: Apple Music connected mid-session, starting monitoring", category: .general)
             appleMusic.startMonitoring()
+            appleMusicMonitoringActive = true
         } else {
             appleMusic.stopMonitoring()
+            appleMusicMonitoringActive = false
         }
     }
 
     func stopMonitoring() {
         spotify.stopPolling()
         appleMusic.stopMonitoring()
+        appleMusicMonitoringActive = false
     }
 
     // MARK: - Observers
@@ -85,7 +102,6 @@ final class MusicDetectionService: ObservableObject {
 
     @objc private func playbackStateDidChange(_ notification: Notification) {
         guard let state = notification.object as? PlaybackState else { return }
-
         if state == .stopped {
             checkIfBothStopped()
         } else {
@@ -108,11 +124,10 @@ final class MusicDetectionService: ObservableObject {
             applyTrack(newTrack)
 
         case .both:
-            let spotifyPlaying     = spotify.playbackState == .playing
-            let appleMusicPlaying  = appleMusic.playbackState == .playing
+            let spotifyPlaying    = spotify.playbackState == .playing
+            let appleMusicPlaying = appleMusic.playbackState == .playing
 
             if spotifyPlaying && appleMusicPlaying {
-                // Both playing simultaneously — ask user
                 DispatchQueue.main.async {
                     self.showServiceConflictPrompt = true
                     NotificationCenter.default.post(name: .serviceConflictDetected, object: nil)
@@ -123,24 +138,19 @@ final class MusicDetectionService: ObservableObject {
         }
     }
 
-    /// Called when user resolves a service conflict by picking one.
     func resolveConflict(preferring source: MusicSource) {
         showServiceConflictPrompt = false
         let track = source == .spotify ? spotify.currentTrack : appleMusic.currentTrack
-        if let track = track {
-            applyTrack(track)
-        }
+        if let track { applyTrack(track) }
     }
 
     // MARK: - Applying Track
 
     private func applyTrack(_ track: Track) {
         guard AppSettings.shared.isEnabled else { return }
-
-        activeTrack  = track
-        activeSource = track.source
+        activeTrack   = track
+        activeSource  = track.source
         playbackState = .playing
-
         Logger.info("Applying track: \(track.name) from \(track.source.displayName)", category: .general)
         wallpaperManager.update(for: track)
     }
@@ -148,17 +158,15 @@ final class MusicDetectionService: ObservableObject {
     // MARK: - Stop Logic
 
     private func checkIfBothStopped() {
-        let spotifyStopped     = spotify.playbackState == .stopped
-        let appleMusicStopped  = appleMusic.playbackState == .stopped
+        let spotifyStopped    = spotify.playbackState == .stopped
+        let appleMusicStopped = appleMusic.playbackState == .stopped
 
         if spotifyStopped && appleMusicStopped {
             playbackState = .stopped
             activeTrack   = nil
-
             if AppSettings.shared.onMusicStop == .revertToUserWallpaper {
                 wallpaperManager.revertToUserWallpaper()
             }
-            // .keepLastArt → do nothing, wallpaper stays as-is
         }
     }
 }
