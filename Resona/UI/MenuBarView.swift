@@ -5,6 +5,8 @@ import SwiftUI
 struct MenuBarView: View {
 
     @ObservedObject var detectionService: MusicDetectionService
+    @ObservedObject private var spotify = SpotifyService.shared
+    @ObservedObject private var appleMusic = AppleMusicService.shared
     @State private var spotifyConnecting = false
     @State private var appleMusicConnecting = false
 
@@ -93,19 +95,23 @@ struct MenuBarView: View {
             ServiceToggle(
                 label: "Spotify",
                 icon: "dot.radiowaves.left.and.right",
-                isConnected: detectionService.spotify.isAuthenticated,
+                isConnected: spotify.isAuthenticated,
                 isLoading: spotifyConnecting,
                 onConnect: connectSpotify,
-                onDisconnect: { detectionService.spotify.disconnect() }
+                onDisconnect: {
+                    detectionService.spotify.disconnect()
+                }
             )
 
             ServiceToggle(
                 label: "Apple Music",
                 icon: "applelogo",
-                isConnected: detectionService.appleMusic.isAuthenticated,
+                isConnected: appleMusic.isAuthenticated,
                 isLoading: appleMusicConnecting,
                 onConnect: connectAppleMusic,
-                onDisconnect: { detectionService.appleMusic.disconnect() }
+                onDisconnect: {
+                    detectionService.appleMusic.disconnect()
+                }
             )
 
             Spacer()
@@ -126,9 +132,9 @@ struct MenuBarView: View {
 
     private var statusSection: some View {
         HStack(spacing: 8) {
-            StatusDot(label: "Spotify",      connected: detectionService.spotify.isAuthenticated)
+            StatusDot(label: "Spotify",     connected: spotify.isAuthenticated)
             Text("·").foregroundStyle(.tertiary)
-            StatusDot(label: "Apple Music",  connected: detectionService.appleMusic.isAuthenticated)
+            StatusDot(label: "Apple Music", connected: appleMusic.isAuthenticated)
             Spacer()
             if detectionService.activeTrack != nil {
                 Text(AppSettings.shared.showAnimatedWallpapers ? "🎬 Animated" : "🖼 Static")
@@ -161,13 +167,9 @@ struct MenuBarView: View {
     }
 
     // MARK: - Connect Actions
-    // Dispatched to background to prevent freezing the UI while
-    // the system hands off the URL to the browser.
 
     private func connectSpotify() {
         spotifyConnecting = true
-        // connect() opens browser via NSWorkspace on main thread — call directly
-        // The callback fires when OAuth completes (could be minutes later)
         detectionService.spotify.connect { result in
             DispatchQueue.main.async {
                 spotifyConnecting = false
