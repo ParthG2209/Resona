@@ -3,8 +3,6 @@ import Combine
 
 // MARK: - AppSettings
 
-/// Single source of truth for all user-configurable preferences.
-/// Backed by UserDefaults. Use `AppSettings.shared` throughout the app.
 final class AppSettings: ObservableObject {
 
     static let shared = AppSettings()
@@ -35,7 +33,6 @@ final class AppSettings: ObservableObject {
     @UserDefault("dimOnIdle", defaultValue: false)
     var dimOnIdle: Bool
 
-    /// Controls how fast/strong the fluid waves move (0 = still, 1 = full speed)
     @UserDefault("waveIntensity", defaultValue: 0.5)
     var waveIntensity: Double
 
@@ -63,7 +60,7 @@ final class AppSettings: ObservableObject {
         set { defaultWallpaperURLString = newValue?.absoluteString }
     }
 
-    // MARK: - Auth State (not secrets — those live in Keychain)
+    // MARK: - Auth State
 
     @UserDefault("spotifyConnected", defaultValue: false)
     var spotifyConnected: Bool
@@ -71,7 +68,13 @@ final class AppSettings: ObservableObject {
     @UserDefault("appleMusicConnected", defaultValue: false)
     var appleMusicConnected: Bool
 
-    // MARK: - Canvas Auth (sp_dc cookie for internal Spotify API)
+    // Whether an Apple Music user has linked a Spotify account for artwork and
+    // Canvas lookups via SpotifySearchService (separate from spotifyConnected,
+    // which tracks whether the user uses Spotify for playback).
+    @UserDefault("spotifyLinkedForAppleMusic", defaultValue: false)
+    var spotifyLinkedForAppleMusic: Bool
+
+    // MARK: - Canvas Auth
 
     @UserDefault("spotifySpDcCookie", defaultValue: "")
     var spotifySpDcCookie: String
@@ -86,8 +89,8 @@ enum ServicePreference: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .both:          return "Both (ask if conflict)"
-        case .spotifyOnly:   return "Spotify only"
+        case .both:           return "Both (ask if conflict)"
+        case .spotifyOnly:    return "Spotify only"
         case .appleMusicOnly: return "Apple Music only"
         }
     }
