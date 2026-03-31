@@ -37,7 +37,7 @@ This document outlines the architectural overhauls required to fix the five core
     2.  **GPU Occlusion / Sleep Hibernation:** Bind the Metal engine's `isPaused` flag to the `playbackState`, `NSWorkspace.screensDidSleepNotification`, system lock events, and window `occlusionState`. If the screen is off, locked, or completely covered by a fullscreen app, the GPU and video decoders drop to **0%**.
     3.  **Nuke AppleScript Polling:** Delete the heavy 2-second AppleScript loop in `AppleMusicService` completely, relying entirely on the native, zero-cost `com.apple.Music.playerInfo` push notifications.
     4.  **Smart Spotify Polling:** Shift to exponential network backoff, capping at 15s polls when paused. If `com.spotify.client` is quit, polling suspends completely via `NSWorkspace`.
-    5.  **Destroy WindowServer Thrashing:** Remove the infinite `CABasicAnimation` pulsing the ambient album art glow. A clean, static drop-shadow looks just as premium and completely halts 60fps WindowServer repainting when the fluid is paused.
+    5.  **Destroy WindowServer Thrashing (EXPERIMENTAL):** Remove the infinite `CABasicAnimation` pulsing the ambient album art glow. A clean, static drop-shadow looks just as premium and completely halts 60fps WindowServer repainting when the fluid is paused.
 
 ---
 
