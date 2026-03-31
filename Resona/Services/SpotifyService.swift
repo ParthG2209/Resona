@@ -77,7 +77,7 @@ final class SpotifyService: ObservableObject {
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "redirect_uri",  value: Constants.Spotify.redirectURI),
             URLQueryItem(name: "scope",         value: Constants.Spotify.scopes),
-            URLQueryItem(name: "show_dialog",   value: "false")
+            URLQueryItem(name: "show_dialog",   value: "true")
         ]
         guard let url = components.url else {
             completion(.failure(SpotifyError.invalidAuthURL)); return
