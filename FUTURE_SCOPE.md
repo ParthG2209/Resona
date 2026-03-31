@@ -32,7 +32,7 @@ Resona is transitioning from a simple macOS background utility into a highly imm
 *   **Constraint Avoidance:** To bypass macOS's draconian `ScreenCaptureKit` permissions and keep the app lightweight, Resona will *not* listen to actual system audio.
 *   **Implementation:** The app fetches the **BPM and Tempo** from the Spotify Web API. An internal `CADisplayLink` mathematically pulses the fluid shader in time with the fetched BPM, creating the illusion of a highly reactive visualizer.
 
-### 2.5 Apple Music Parity via Spotify's Backend
+### 2.5 Apple Music Parity via Spotify's Backend (FIXED)
 *   **Problem:** iTunes Search API frequently returns incorrect album art (e.g., right song, wrong album/compilation).
 *   **Solution:** When an Apple Music track plays, Resona takes the Title and Artist and executes a search against the **Spotify Web API**.
 *   **Benefits:**
