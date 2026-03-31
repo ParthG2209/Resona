@@ -10,19 +10,8 @@
 		D04D23942F6FECA700680E8A /* Resona.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Resona.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		D04D23962F6FECA700680E8A /* Resona */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				D04D23B02F6FECA700680E8A /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
-			);
-			path = Resona;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
-
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		D04D23B02F6FECA700680E8A /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		D04D23B02F6FECA700680E8A /* Exceptions for "Resona" folder in "Resona" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -30,6 +19,17 @@
 			target = D04D23932F6FECA700680E8A /* Resona */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		D04D23962F6FECA700680E8A /* Resona */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D04D23B02F6FECA700680E8A /* Exceptions for "Resona" folder in "Resona" target */,
+			);
+			path = Resona;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		D04D23912F6FECA700680E8A /* Frameworks */ = {
