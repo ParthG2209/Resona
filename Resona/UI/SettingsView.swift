@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import ServiceManagement
 
 // MARK: - SettingsView
 
@@ -15,28 +16,33 @@ struct SettingsView: View {
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 520, height: 440)
+        .frame(width: 520, height: 460)
     }
 }
 
-// MARK: - General Tab
+// MARK: - General
 
 private struct GeneralTab: View {
-    @StateObject private var settings = AppSettings.shared
-    @ObservedObject private var spotify = SpotifyService.shared
+    @ObservedObject private var settings   = AppSettings.shared
+    @ObservedObject private var spotify    = SpotifyService.shared
     @ObservedObject private var appleMusic = AppleMusicService.shared
 
     var body: some View {
         Form {
             Section("App") {
                 Toggle("Enable Resona", isOn: $settings.isEnabled)
-                Toggle("Launch at login", isOn: $settings.launchOnStartup)
-                    .onChange(of: settings.launchOnStartup) {
-                        // TODO: Register/unregister with SMAppService (macOS 13+)
+                    .help("When disabled, the animated wallpaper is dismissed and reverted.")
+
+                Toggle("Launch at login", isOn: Binding(
+                    get: { settings.launchOnStartup },
+                    set: { newValue in
+                        settings.launchOnStartup = newValue
+                        setLoginItem(enabled: newValue)
                     }
+                ))
             }
 
-            Section("Music Service") {
+            Section("Preferred Source") {
                 Picker("Active service", selection: $settings.preferredService) {
                     ForEach(ServicePreference.allCases, id: \.self) { pref in
                         Text(pref.displayName).tag(pref)
@@ -46,19 +52,15 @@ private struct GeneralTab: View {
             }
 
             Section("Connections") {
-                ServiceRow(
+                connection(
                     title: "Spotify",
-                    isConnected: spotify.isAuthenticated,
-                    onConnect: {
-                        SpotifyService.shared.connect { _ in }
-                    },
-                    onDisconnect: {
-                        SpotifyService.shared.disconnect()
-                    }
+                    connected: spotify.isAuthenticated,
+                    onConnect: { SpotifyService.shared.connect { _ in } },
+                    onDisconnect: { SpotifyService.shared.disconnect() }
                 )
-                ServiceRow(
+                connection(
                     title: "Apple Music",
-                    isConnected: appleMusic.isAuthenticated,
+                    connected: appleMusic.isAuthenticated,
                     onConnect: { Task { await AppleMusicService.shared.connect() } },
                     onDisconnect: { AppleMusicService.shared.disconnect() }
                 )
@@ -67,56 +69,94 @@ private struct GeneralTab: View {
         .formStyle(.grouped)
         .padding()
     }
+
+    private func connection(title: String, connected: Bool,
+                            onConnect: @escaping () -> Void,
+                            onDisconnect: @escaping () -> Void) -> some View {
+        HStack {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(connected ? Color.green : Color.secondary.opacity(0.35))
+                    .frame(width: 7, height: 7)
+                Text(title)
+            }
+            Spacer()
+            if connected {
+                Text("Connected")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.green)
+                Button("Disconnect", role: .destructive) { onDisconnect() }
+                    .controlSize(.small)
+            } else {
+                Button("Connect") { onConnect() }
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private func setLoginItem(enabled: Bool) {
+        if #available(macOS 13.0, *) {
+            do {
+                if enabled {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                Logger.error("Failed to \(enabled ? "register" : "unregister") login item: \(error)", category: .general)
+            }
+        }
+    }
 }
 
-// MARK: - Appearance Tab
+// MARK: - Appearance
 
 private struct AppearanceTab: View {
-    @StateObject private var settings = AppSettings.shared
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         Form {
-            Section("Wallpaper") {
-                Toggle("Show animated wallpapers (Spotify Canvas)", isOn: $settings.showAnimatedWallpapers)
-                    .help("Uses Spotify Canvas video when available. Requires Phase 3 implementation.")
-
-                Picker("Transition style", selection: $settings.transitionStyle) {
-                    ForEach(TransitionStyle.allCases, id: \.self) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
+            Section("Wallpaper Engine") {
+                Toggle("Enable Canvas videos", isOn: $settings.showAnimatedWallpapers)
+                    .help("When available, displays the Spotify Canvas video loop. Toggling off mid-playback will switch to the static composed wallpaper.")
 
                 Picker("When music stops", selection: $settings.onMusicStop) {
-                    ForEach(StopBehavior.allCases, id: \.self) { behavior in
-                        Text(behavior.displayName).tag(behavior)
+                    ForEach(StopBehavior.allCases, id: \.self) { b in
+                        Text(b.displayName).tag(b)
                     }
                 }
+            }
 
+            Section("Fluid Waves") {
                 HStack {
-                    Text("Wave Intensity")
+                    Image(systemName: "water.waves")
+                        .foregroundStyle(.secondary)
+                    Text("Intensity")
                     Spacer()
                     Slider(value: $settings.waveIntensity, in: 0...1, step: 0.05)
-                        .frame(width: 160)
+                        .frame(width: 150)
                     Text(waveLabel(settings.waveIntensity))
                         .frame(width: 60, alignment: .trailing)
-                        .foregroundStyle(.secondary)
                         .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
-                .help("Controls how fast/strong the fluid background waves move")
             }
 
             Section("Default Wallpaper") {
                 HStack {
-                    if let url = AppSettings.shared.defaultWallpaperURL {
+                    if let url = settings.defaultWallpaperURL {
                         Text(url.lastPathComponent)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     } else {
                         Text("Not set").foregroundStyle(.tertiary)
                     }
                     Spacer()
                     Button("Browse…") { browseForWallpaper() }
+                        .controlSize(.small)
                     Button("Use Current") { saveCurrentWallpaper() }
+                        .controlSize(.small)
                 }
             }
         }
@@ -129,18 +169,19 @@ private struct AppearanceTab: View {
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
-            AppSettings.shared.defaultWallpaperURL = url
+            settings.defaultWallpaperURL = url
         }
     }
 
     private func saveCurrentWallpaper() {
-        if let url = NSWorkspace.shared.desktopImageURL(for: NSScreen.main!) {
-            AppSettings.shared.defaultWallpaperURL = url
+        if let screen = NSScreen.main,
+           let url = NSWorkspace.shared.desktopImageURL(for: screen) {
+            settings.defaultWallpaperURL = url
         }
     }
 
-    private func waveLabel(_ value: Double) -> String {
-        switch value {
+    private func waveLabel(_ v: Double) -> String {
+        switch v {
         case 0:           return "Still"
         case 0.01...0.25: return "Gentle"
         case 0.26...0.50: return "Moderate"
@@ -150,10 +191,10 @@ private struct AppearanceTab: View {
     }
 }
 
-// MARK: - Advanced Tab
+// MARK: - Advanced
 
 private struct AdvancedTab: View {
-    @StateObject private var settings = AppSettings.shared
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         Form {
@@ -161,7 +202,7 @@ private struct AdvancedTab: View {
                 Toggle("Clear cache on quit", isOn: $settings.clearCacheOnQuit)
 
                 HStack {
-                    Text("Max cache size")
+                    Text("Max size")
                     Spacer()
                     Slider(
                         value: Binding(
@@ -173,11 +214,14 @@ private struct AdvancedTab: View {
                     .frame(width: 140)
                     Text("\(settings.maxCacheSizeMB) MB")
                         .frame(width: 55, alignment: .trailing)
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
 
-                Button("Clear Cache Now") { ArtworkCache.shared.clearAll() }
-                    .foregroundStyle(.red)
+                Button("Clear Cache Now", role: .destructive) {
+                    ArtworkCache.shared.clearAll()
+                }
+                .controlSize(.small)
             }
 
             Section("Polling") {
@@ -192,19 +236,12 @@ private struct AdvancedTab: View {
                     .frame(width: 80)
                     .labelsHidden()
                 }
+                .help("How often Resona checks Spotify's API. Lower = faster response, higher = less API load. Takes effect on next app launch or reconnect.")
             }
 
-            Section("Debug") {
-                Toggle("Enable debug logging", isOn: $settings.enableDebugLogging)
-                Button("Open Log in Console") {
-                    NSWorkspace.shared.open(URL(string: "console://")!)
-                }
-                .foregroundStyle(.secondary)
-            }
-
-            Section("Spotify Canvas (Animated Videos)") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("To enable animated video wallpapers, paste your Spotify sp_dc cookie below.")
+            Section("Spotify Canvas") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Paste your sp_dc cookie to enable Canvas video wallpapers.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
@@ -213,15 +250,26 @@ private struct AdvancedTab: View {
                             .textFieldStyle(.roundedBorder)
 
                         Button("?") {
-                            NSWorkspace.shared.open(URL(string: "https://github.com/Paxsenix0/Spotify-Canvas-API#3-set-required-environment-variable")!)
+                            NSWorkspace.shared.open(
+                                URL(string: "https://github.com/Paxsenix0/Spotify-Canvas-API#3-set-required-environment-variable")!
+                            )
                         }
                         .help("How to get your sp_dc cookie")
                     }
 
-                    Text("Open Spotify Web Player in your browser → DevTools (F12) → Application → Cookies → find sp_dc")
+                    Text("Spotify Web Player → DevTools (F12) → Application → Cookies → sp_dc")
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                 }
+            }
+
+            Section("Debug") {
+                Toggle("Verbose logging", isOn: $settings.enableDebugLogging)
+                Button("Open Console.app") {
+                    NSWorkspace.shared.open(URL(string: "console://")!)
+                }
+                .controlSize(.small)
+                .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -229,26 +277,29 @@ private struct AdvancedTab: View {
     }
 }
 
-// MARK: - About Tab
+// MARK: - About
 
 private struct AboutTab: View {
     var body: some View {
         VStack(spacing: 16) {
+            Spacer()
+
             Image(systemName: "music.note.house.fill")
-                .font(.system(size: 48))
+                .font(.system(size: 44))
                 .foregroundStyle(.tint)
 
-            Text("Resona").font(.largeTitle.bold())
-            Text("Version \(Constants.App.version)").foregroundStyle(.secondary)
+            Text("Resona").font(.title.bold())
+            Text("Version \(Constants.App.version)")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
 
-            Divider()
+            Divider().frame(width: 200)
 
-            VStack(alignment: .leading, spacing: 8) {
-                StatusInfoRow(label: "Spotify Canvas",        status: "Active (sp_dc required)", color: .green)
-                StatusInfoRow(label: "Apple Music API",       status: "AppleScript",              color: .green)
-                StatusInfoRow(label: "Animated Wallpapers",   status: "Active",                  color: .green)
+            VStack(alignment: .leading, spacing: 6) {
+                statusRow("Spotify Canvas",     "Active (sp_dc)", .green)
+                statusRow("Apple Music",        "Push Notification", .green)
+                statusRow("Fluid Engine",       "Metal (30 fps)", .green)
             }
-            .padding(.horizontal)
 
             Spacer()
 
@@ -256,45 +307,24 @@ private struct AboutTab: View {
                 Link("Support", destination: URL(string: "mailto:\(Constants.App.supportEmail)")!)
                 Link("Website", destination: URL(string: "https://resona.app")!)
             }
+            .font(.system(size: 12))
             .foregroundStyle(.tint)
+
+            Spacer().frame(height: 8)
         }
         .padding()
     }
-}
 
-// MARK: - Supporting Views
-
-private struct ServiceRow: View {
-    let title: String
-    let isConnected: Bool
-    let onConnect: () -> Void
-    let onDisconnect: () -> Void
-
-    var body: some View {
+    private func statusRow(_ label: String, _ status: String, _ color: Color) -> some View {
         HStack {
-            Text(title)
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
             Spacer()
-            if isConnected {
-                Label("Connected", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.system(size: 12))
-                Button("Disconnect") { onDisconnect() }.foregroundStyle(.red)
-            } else {
-                Button("Connect") { onConnect() }
-            }
+            Text(status)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(color)
         }
-    }
-}
-
-private struct StatusInfoRow: View {
-    let label: String
-    let status: String
-    let color: Color
-
-    var body: some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            Spacer()
-            Text(status).foregroundStyle(color).font(.system(size: 12))
-        }
+        .frame(width: 260)
     }
 }
