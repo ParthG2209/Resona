@@ -228,7 +228,7 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
     override init(frame: CGRect, device: MTLDevice?) {
         super.init(frame: frame, device: device)
         delegate = self
-        preferredFramesPerSecond = 60
+        preferredFramesPerSecond = 30
         isPaused = false
         enableSetNeedsDisplay = false
         colorPixelFormat = .bgra8Unorm
@@ -502,15 +502,9 @@ final class AnimatedArtworkView: NSView {
         glow.locations = [0, 1]
         glow.startPoint = CGPoint(x: 0.5, y: 0.5)
         glow.endPoint = CGPoint(x: 1.0, y: 1.0)
-        glow.opacity = 0.55
+        glow.opacity = 0.6
         overlay.layer?.addSublayer(glow)
         glowLayer = glow
-
-        let pulse = CABasicAnimation(keyPath: "opacity")
-        pulse.fromValue = 0.4; pulse.toValue = 0.75
-        pulse.duration = 4; pulse.autoreverses = true; pulse.repeatCount = .infinity
-        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        glow.add(pulse, forKey: "glowPulse")
 
         // 4. Drop shadow beneath the media frame
         let shadow = CALayer()
