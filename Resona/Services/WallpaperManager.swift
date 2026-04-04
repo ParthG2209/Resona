@@ -1,19 +1,65 @@
 import Foundation
 import AppKit
 import CoreImage
+import Combine
 
 // MARK: - WallpaperManager
 
 final class WallpaperManager {
 
     static let shared = WallpaperManager()
-    private init() {}
+    private init() { observeSettingsChanges() }
 
     private let cache        = ArtworkCache.shared
     private let session      = URLSession.shared
     private var pendingTask:   URLSessionDataTask?
     private lazy var ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private let animatedCtrl  = AnimatedWallpaperController.shared
+    private var cancellables  = Set<AnyCancellable>()
+
+    // MARK: - Settings Observer
+    //
+    // React IMMEDIATELY to mid-playback setting changes.
+    // Without this, toggling "Canvas" or "Enable" only took effect on next track.
+
+    private func observeSettingsChanges() {
+        let settings = AppSettings.shared
+
+        // isEnabled toggled off → dismiss wallpaper instantly
+        settings.$isEnabled
+            .dropFirst() // skip initial value
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in
+                guard let self else { return }
+                if !enabled {
+                    self.pendingTask?.cancel()
+                    self.animatedCtrl.dismiss()
+                    self.revertToUserWallpaper()
+                } else if let track = MusicDetectionService.shared.activeTrack {
+                    // Re-enable: re-apply active track
+                    self.update(for: track)
+                }
+            }
+            .store(in: &cancellables)
+
+        // showAnimatedWallpapers toggled → switch mode for current track
+        settings.$showAnimatedWallpapers
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] animated in
+                guard let self else { return }
+                guard settings.isEnabled,
+                      let track = MusicDetectionService.shared.activeTrack
+                else { return }
+                // Toggle happened mid-playback — re-run with the active track.
+                // update(for:) will check the new value and either show animated
+                // or dismiss + show static.
+                self.update(for: track)
+            }
+            .store(in: &cancellables)
+    }
 
     // MARK: - Public API
 
