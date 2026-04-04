@@ -43,8 +43,10 @@ final class SpotifySearchService {
 
     // MARK: - Auth State
 
-    @UserDefault("spotifyLinkedForAppleMusic", defaultValue: false)
-    private(set) var isLinked: Bool
+    private(set) var isLinked: Bool {
+        get { AppSettings.shared.spotifyLinkedForAppleMusic }
+        set { AppSettings.shared.spotifyLinkedForAppleMusic = newValue }
+    }
 
     private(set) var isHandlingSearchAuth = false
     private var authCompletion: ((Result<Void, Error>) -> Void)?
