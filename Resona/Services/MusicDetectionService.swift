@@ -28,12 +28,8 @@ final class MusicDetectionService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let wallpaperManager = WallpaperManager.shared
 
-    // Guards appleMusicConnectionChanged() from calling startMonitoring() repeatedly.
-    // Apple Music monitoring is always-on once started — there is no reason to restart
-    // it unless it was explicitly stopped. Without this guard, every call to
-    // appleMusicConnectionChanged() (which can fire from multiple paths) restarts the
-    // poll timer and the workspace observers, producing the repeated log spam seen in
-    // the debug output.
+    // Apple Music monitoring is always-on once started (just a single
+    // DistributedNotificationCenter observer — zero CPU cost).
     private var appleMusicMonitoringActive = false
 
     // MARK: - Lifecycle
@@ -45,17 +41,15 @@ final class MusicDetectionService: ObservableObject {
             spotify.startPolling()
         }
 
-        // Apple Music monitoring starts unconditionally — it uses local AppleScript
-        // and distributed notifications, no network auth required.
+        // Apple Music monitoring is a single notification listener — always start it.
         if !appleMusicMonitoringActive {
-            print("[Resona] Starting Apple Music monitoring")
+            print("[Resona] Starting Apple Music monitoring (notification-only, zero CPU)")
             appleMusic.startMonitoring()
             appleMusicMonitoringActive = true
         }
     }
 
     /// Called when Apple Music connection state changes mid-session.
-    /// Guarded so startMonitoring() is not called redundantly.
     func appleMusicConnectionChanged() {
         if AppSettings.shared.appleMusicConnected {
             guard !appleMusicMonitoringActive else {
