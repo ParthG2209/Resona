@@ -378,6 +378,10 @@ final class FluidWaveView: MTKView, MTKViewDelegate {
 
             c.rgb *= 0.72;
 
+            // Dithering: breaks up 8-bit color boundaries to eliminate banding
+            float dither = fract(sin(dot(in.pos.xy, float2(12.9898, 78.233))) * 43758.5453);
+            c.rgb += (dither / 255.0) - (0.5 / 255.0);
+
             return float4(c.rgb, 1.0);
         }
         """
