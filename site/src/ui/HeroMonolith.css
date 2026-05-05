@@ -1,0 +1,145 @@
+/* ═══════════════════════════════════════════════════════════
+   Hero Cinematic — The A24 Editorial Cut
+   ═══════════════════════════════════════════════════════════ */
+
+.hero-cinematic {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: #000000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Base film grain over the entire black void */
+.hero-cinematic::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.8;
+}
+
+/* ── Top Nav Badges ── */
+.hero-cinematic__nav {
+  position: absolute;
+  top: 40px;
+  left: 40px;
+  right: 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 20;
+}
+
+.hero-cinematic__logo {
+  height: 64px;
+  width: auto;
+  display: block;
+}
+
+.hero-cinematic__nav-item {
+  font-size: 0.65rem;
+  letter-spacing: 0.25em;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+/* ── The Cinematic Strip (Fluid Shader) ── */
+.hero-cinematic__strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 38vh; /* Ultra-widescreen letterbox */
+  background: #111;
+  z-index: 1;
+  overflow: hidden;
+  /* Massive, diffused glow spilling from the letterbox into the dark */
+  box-shadow: 
+    0 0 120px rgba(220, 50, 120, 0.15),
+    0 0 200px rgba(100, 60, 200, 0.10);
+}
+
+.hero-cinematic__fluid-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transform: scale(1.02); /* Prevents edge bleeding */
+}
+
+/* Vignette to smoothly fade the left and right edges of the strip into black */
+.hero-cinematic__strip-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, #000 0%, rgba(0,0,0,0) 15%, rgba(0,0,0,0) 85%, #000 100%);
+  pointer-events: none;
+}
+
+/* ── The Album Art ── */
+.hero-cinematic__album {
+  position: relative;
+  /* Album is larger than the strip height, breaking the letterbox boundaries */
+  width: min(50vh, 420px);
+  aspect-ratio: 1/1;
+  z-index: 5;
+  border-radius: 24px; /* Exact 6% ratio from the Swift app */
+  overflow: hidden;
+  background: #000;
+  /* Extreme Z-depth shadow */
+  box-shadow: 
+    0 60px 100px -20px rgba(0, 0, 0, 0.95),
+    0 30px 60px -10px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(255, 255, 255, 0.15); /* physical edge */
+  
+  transform: translateZ(0); /* Hardware accel for shadow rendering */
+}
+
+.hero-cinematic__album img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Physical glare on the album cover */
+.hero-cinematic__album-glare {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.25) 0%, transparent 30%, transparent 100%);
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+/* ── Billing Block (Bottom Text) ── */
+.hero-cinematic__billing {
+  position: absolute;
+  bottom: 40px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 0.6rem;
+  letter-spacing: 0.35em;
+  color: rgba(255, 255, 255, 0.3);
+  z-index: 20;
+  font-weight: 500;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  align-items: center;
+  text-transform: uppercase;
+}
+
+.hero-cinematic__billing span {
+  color: rgba(255, 255, 255, 0.15);
+  font-size: 0.8rem;
+}
