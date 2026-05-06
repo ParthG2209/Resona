@@ -136,23 +136,44 @@ function rgbToHslBoost(r, g, b) {
   return [r1, g1, b1, 1.0];
 }
 
-const PALETTES = {
+export const PALETTES = {
   graduation: [
     rgbToHslBoost(0.65, 0.35, 0.55),
     rgbToHslBoost(0.25, 0.20, 0.45),
     rgbToHslBoost(0.75, 0.40, 0.60),
     rgbToHslBoost(0.85, 0.65, 0.35),
     rgbToHslBoost(0.45, 0.35, 0.65),
+  ],
+  starboy: [
+    rgbToHslBoost(0.85, 0.15, 0.25), // Bright Red
+    rgbToHslBoost(0.15, 0.15, 0.35), // Dark Blue
+    rgbToHslBoost(0.95, 0.25, 0.35), // Pinkish Red
+    rgbToHslBoost(0.10, 0.10, 0.15), // Almost Black
+    rgbToHslBoost(0.20, 0.10, 0.20), // Deep Purple
+  ],
+  takecare: [
+    rgbToHslBoost(0.80, 0.60, 0.20), // Gold
+    rgbToHslBoost(0.30, 0.20, 0.10), // Dark Brown
+    rgbToHslBoost(0.90, 0.75, 0.40), // Light Gold
+    rgbToHslBoost(0.15, 0.10, 0.05), // Very Dark Brown
+    rgbToHslBoost(0.50, 0.35, 0.15), // Mid Brown
+  ],
+  flowerboy: [
+    rgbToHslBoost(0.95, 0.65, 0.15), // Sunflower Yellow/Orange
+    rgbToHslBoost(0.20, 0.60, 0.30), // Leaf Green
+    rgbToHslBoost(0.95, 0.85, 0.25), // Bright Yellow
+    rgbToHslBoost(0.40, 0.65, 0.85), // Sky Blue
+    rgbToHslBoost(0.85, 0.45, 0.15), // Deep Orange
   ]
 };
 
 export default class FluidEngine {
-  constructor(canvas) {
+  constructor(canvas, paletteName = 'graduation') {
     this.canvas = canvas;
     this.gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false });
     this._intensity = 0.5;
-    this._palette = PALETTES.graduation;
-    this._targetPalette = PALETTES.graduation;
+    this._palette = PALETTES[paletteName] || PALETTES.graduation;
+    this._targetPalette = this._palette;
     this._startTime = performance.now();
     this._animId = null;
     this._init();
