@@ -1,0 +1,52 @@
+.signals {
+  width: 100vw;
+  background-color: #000;
+  padding: 8rem 0;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.signals__label {
+  font-family: var(--font-mono, 'Geist Mono', monospace);
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 3rem;
+  text-transform: uppercase;
+  z-index: 2;
+}
+
+.signals__marquee {
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  display: flex;
+  /* Optional: fade out edges slightly */
+  mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+}
+
+.signals__marquee-inner {
+  display: flex;
+  white-space: nowrap;
+  animation: scroll-marquee 40s linear infinite;
+  will-change: transform;
+}
+
+.signals__text {
+  font-family: var(--font-sans, 'Geist', sans-serif);
+  font-size: clamp(4rem, 8vw, 10rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #fff; /* Solid text */
+  text-transform: uppercase;
+  padding-right: 2rem; /* Matches gap between words */
+}
+
+@keyframes scroll-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
