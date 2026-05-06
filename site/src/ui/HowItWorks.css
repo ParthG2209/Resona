@@ -30,9 +30,7 @@
 
 /* Base Card Styling for the squares */
 .process__card {
-  width: 24vw;
-  max-width: 400px;
-  min-width: 250px;
+  width: clamp(180px, 24vw, 400px); /* Fully fluid, no rigid min-width causing overflow */
   aspect-ratio: 1 / 1; /* Perfect squares */
   box-shadow: 0 30px 60px rgba(0,0,0,0.6);
   background: #000;
@@ -99,4 +97,21 @@
   letter-spacing: 0.4em;
   color: rgba(255, 255, 255, 0.2);
   text-transform: uppercase;
+}
+
+@media (max-width: 768px) {
+  .process { padding: 6rem 1rem; }
+  .process__container {
+    flex-direction: column;
+    gap: 5rem;
+  }
+  .process__card {
+    width: 60vw;
+    max-width: 280px;
+    min-width: 200px;
+  }
+  .process__footer-track {
+    bottom: 2rem;
+    font-size: 0.5rem;
+  }
 }
