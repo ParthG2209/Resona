@@ -46,9 +46,9 @@
 
 .hardware__macbook {
   width: 80%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  max-width: 800px;
+  display: block;
+  margin: 0 auto;
   transform: rotateX(5deg);
   transform-style: preserve-3d;
 }
@@ -56,11 +56,13 @@
 .hardware__screen-bezel {
   width: 100%;
   aspect-ratio: 16 / 10;
+  height: auto;
   background: #080808;
   border-radius: 20px 20px 0 0;
   border: 2px solid #222;
   border-bottom: none;
   padding: 12px;
+  box-sizing: border-box;
   position: relative;
   box-shadow: 0 40px 100px rgba(0, 0, 0, 0.9), inset 0 2px 5px rgba(255, 255, 255, 0.05);
 }
@@ -91,6 +93,7 @@
   height: 100%;
   object-fit: cover;
   opacity: 0.9;
+  display: block;
 }
 
 .hardware__base {
@@ -102,6 +105,7 @@
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
   display: flex;
   justify-content: center;
+  margin: 0 -2%;
 }
 
 .hardware__base-notch {
