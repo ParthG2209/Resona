@@ -228,27 +228,49 @@ export default class FluidEngine {
   }
 
   start() {
+    if (this._animId) return; // already running
+
+    // Set up observer to only render when on-screen
+    if (!this._observer) {
+      this._observer = new IntersectionObserver((entries) => {
+        this._isVisible = entries[0].isIntersecting;
+      }, { threshold: 0 });
+      this._observer.observe(this.canvas);
+    }
+
     const gl = this.gl;
+    this._isVisible = true; // Assume true until observer fires
+
     const loop = () => {
+      this._animId = requestAnimationFrame(loop);
+
+      if (!this._isVisible) return; // Skip WebGL draw calls if off-screen
+
       this.resize();
       const t = (performance.now() - this._startTime) / 1000;
       const currentSpeed = 0.02 + (this._intensity * 0.26);
       gl.uniform1f(this.u.time, t);
       gl.uniform1f(this.u.speed, currentSpeed);
       gl.uniform2f(this.u.resolution, this.canvas.width, this.canvas.height);
+      
       for (let i = 0; i < 5; i++) {
         gl.uniform4fv(this.u.colors[i], this._palette[i]);
       }
+      
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      this._animId = requestAnimationFrame(loop);
     };
-    loop();
+    
+    this._animId = requestAnimationFrame(loop);
   }
 
   stop() {
     if (this._animId) {
       cancelAnimationFrame(this._animId);
       this._animId = null;
+    }
+    if (this._observer) {
+      this._observer.disconnect();
+      this._observer = null;
     }
   }
 }
