@@ -29,7 +29,7 @@
 }
 
 .gallery__monolith {
-  width: 26vw; /* 3 of these = 78vw, leaving room for gaps and edges */
+  width: clamp(220px, 26vw, 400px); /* Fully fluid scaling */
   height: 100%;
   position: relative;
   background: #111;
@@ -100,4 +100,30 @@
 .gallery__global-tracking--right {
   right: 2vw;
   transform: translateY(-50%);
+}
+
+@media (max-width: 768px) {
+  .gallery__track {
+    flex-direction: column;
+    gap: 4rem;
+  }
+  .gallery__item {
+    height: auto;
+    width: 100%;
+    margin-bottom: 2rem;
+  }
+  .gallery__monolith {
+    width: 80vw;
+    aspect-ratio: 9 / 16;
+    height: auto;
+    margin: 0 auto;
+  }
+  .gallery__album-art {
+    bottom: -15%;
+    width: 55%;
+  }
+  .gallery__global-tracking--left, 
+  .gallery__global-tracking--right {
+    display: none;
+  }
 }
