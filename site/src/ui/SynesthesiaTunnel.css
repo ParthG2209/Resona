@@ -1,0 +1,107 @@
+.tunnel {
+  width: 100vw;
+  height: 100vh;
+  background-color: #000;
+  overflow: hidden;
+  position: relative;
+}
+
+.tunnel__fluid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.6; /* Dim the fluid so typography still pops */
+  filter: blur(10px) contrast(1.2); /* Make it feel like an ambient glow rather than a sharp screen */
+  z-index: 0;
+  pointer-events: none;
+}
+
+.tunnel__container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  perspective: 1000px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.tunnel__text-wrapper {
+  text-align: center;
+  width: 100%;
+  max-width: 90vw;
+  pointer-events: none;
+  /* Will-change helps with the heavy scale/blur transitions */
+  will-change: transform, opacity, filter;
+}
+
+.tunnel__title {
+  font-family: var(--font-mono, 'Geist Mono', monospace);
+  font-size: clamp(3rem, 8vw, 7rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: #fff;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.tunnel__sub {
+  font-family: var(--font-mono, 'Geist Mono', monospace);
+  font-size: clamp(0.75rem, 1.5vw, 1rem);
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 1rem;
+  text-transform: uppercase;
+}
+
+/* Abstract rings */
+.tunnel__rings {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100vmin;
+  height: 100vmin;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.tunnel__ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 
+    inset 0 0 100px rgba(255, 255, 255, 0.02),
+    0 0 100px rgba(255, 255, 255, 0.02);
+  filter: blur(8px);
+}
+
+.tunnel__ring--1 {
+  transform: scale(0.8) rotateX(60deg) rotateY(20deg);
+  animation: spin 20s linear infinite;
+  border-color: rgba(255, 100, 50, 0.1);
+}
+
+.tunnel__ring--2 {
+  transform: scale(1.2) rotateX(40deg) rotateY(-20deg);
+  animation: spin 30s linear infinite reverse;
+  border-color: rgba(50, 100, 255, 0.1);
+}
+
+.tunnel__ring--3 {
+  transform: scale(1.8) rotateX(70deg) rotateY(0deg);
+  animation: spin 40s linear infinite;
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+@keyframes spin {
+  from { transform: rotateZ(0deg) rotateX(60deg) rotateY(20deg); }
+  to { transform: rotateZ(360deg) rotateX(60deg) rotateY(20deg); }
+}
