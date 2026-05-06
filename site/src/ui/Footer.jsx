@@ -1,56 +1,29 @@
-import RevealText from './RevealText';
 import './Footer.css';
 
-/**
- * Footer — sits underneath the fluid canvas on the Z-axis.
- * As the user scrolls to the bottom, the fluid slides up like a
- * theater curtain, revealing this stark, minimal footer.
- */
 export default function Footer() {
   return (
-    <footer className="footer" id="footer">
-      <div className="footer__inner">
-        <RevealText as="span" className="micro footer__label" delay={0}>
-          macOS 14 Sonoma or later
-        </RevealText>
-
-        <RevealText as="h2" className="footer__cta" delay={100}>
-          <a
-            href="https://github.com/ParthG2209/Resona/releases"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="footer__link"
-          >
-            Download Resona
-          </a>
-        </RevealText>
-
-        <RevealText delay={200}>
-          <div className="footer__meta">
-            <span className="footer__meta-item">MIT License</span>
-            <span className="footer__meta-sep">·</span>
-            <span className="footer__meta-item">Swift 5.9+</span>
-            <span className="footer__meta-sep">·</span>
-            <span className="footer__meta-item">Metal GPU</span>
-          </div>
-        </RevealText>
-
-        <RevealText delay={300}>
-          <div className="footer__bottom">
-            <a
-              href="https://github.com/ParthG2209/Resona"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="footer__github"
-            >
-              View on GitHub →
-            </a>
-          </div>
-        </RevealText>
+    <footer className="footer">
+      <div className="footer__credits">
+        <div className="footer__column">
+          <span className="footer__role">CREATOR & DIRECTOR</span>
+          <span className="footer__name">PARTH GUPTA</span>
+        </div>
+        <div className="footer__column">
+          <span className="footer__role">VISUAL ENGINE</span>
+          <span className="footer__name">METAL & WEBGL</span>
+        </div>
+        <div className="footer__column">
+          <span className="footer__role">STUDIO</span>
+          <span className="footer__name">RESONA PRODUCTIONS</span>
+        </div>
+        <div className="footer__column">
+          <span className="footer__role">LEGAL</span>
+          <span className="footer__name">© 2026 ALL RIGHTS RESERVED</span>
+        </div>
       </div>
-
-      <div className="footer__credit">
-        <span>Built with Metal shaders by Parth Gupta</span>
+      
+      <div className="footer__bottom">
+        <h1 className="footer__logo">RESONA</h1>
       </div>
     </footer>
   );
