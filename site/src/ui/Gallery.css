@@ -1,0 +1,103 @@
+.gallery {
+  width: 100vw;
+  min-height: 100vh;
+  background-color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10rem 2rem;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.gallery__track {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 3vw; /* Tighter gap so 3 fit elegantly */
+  width: 100%;
+  max-width: 1600px;
+}
+
+.gallery__item {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  position: relative;
+  height: 70vh;
+}
+
+.gallery__monolith {
+  width: 26vw; /* 3 of these = 78vw, leaving room for gaps and edges */
+  height: 100%;
+  position: relative;
+  background: #111;
+  border-radius: 12px;
+  overflow: visible; /* To allow album art to bleed over the bottom */
+}
+
+.gallery__canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.gallery__album-title {
+  position: absolute;
+  top: 15%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono, 'Geist Mono', monospace);
+  font-size: clamp(1rem, 2.5vw, 3rem); /* Scaled down slightly to fit the 3-col layout */
+  color: rgba(255, 255, 255, 0.9);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  mix-blend-mode: overlay;
+  text-align: center;
+  width: 90%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.gallery__album-art {
+  position: absolute;
+  bottom: -10%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 45%; /* Proportionally correct based on the screenshot */
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.8);
+  z-index: 3;
+}
+
+.gallery__global-tracking {
+  position: absolute;
+  top: 50%;
+  font-family: var(--font-mono, 'Geist Mono', monospace);
+  font-size: 0.65rem;
+  letter-spacing: 0.25em;
+  color: rgba(255, 255, 255, 0.2);
+  text-transform: uppercase;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  pointer-events: none;
+}
+
+.gallery__global-tracking--left {
+  left: 2vw;
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.gallery__global-tracking--right {
+  right: 2vw;
+  transform: translateY(-50%);
+}
