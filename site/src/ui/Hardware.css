@@ -114,3 +114,34 @@
   background: #1a1a1a;
   border-radius: 0 0 4px 4px;
 }
+
+@media (max-width: 768px) {
+  .hardware__title { font-size: clamp(2.5rem, 8vw, 3rem); }
+  .hardware__subtitle { font-size: 0.75rem; }
+  
+  /* We use exactly 0.5x scaling of the desktop pixel values to maintain perfect, realistic proportions */
+  .hardware__macbook { width: 92vw; transform: rotateX(4deg); }
+  .hardware__screen-bezel { 
+    padding: 6px; 
+    border-radius: 10px 10px 0 0; 
+    border: 1px solid #333; /* Thinner border for mobile */
+  }
+  .hardware__notch { 
+    width: 12%; /* Keep realistic Apple width */
+    height: 10px; 
+    border-radius: 0 0 4px 4px; 
+    top: 6px; 
+  }
+  .hardware__screen { border-radius: 4px; }
+  .hardware__base { 
+    height: 8px; 
+    border-radius: 0 0 8px 8px; 
+    margin: 0 -2%; 
+    width: 104%; 
+  }
+  .hardware__base-notch { 
+    height: 3px; 
+    width: 15%; 
+    border-radius: 0 0 2px 2px;
+  }
+}
