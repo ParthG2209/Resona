@@ -59,11 +59,10 @@
   right: 0;
   top: 50%;
   transform: translateY(-50%);
-  height: 38vh; /* Ultra-widescreen letterbox */
+  height: clamp(250px, 35vh, 450px); /* Safely clamped widescreen */
   background: #111;
   z-index: 1;
   overflow: hidden;
-  /* Massive, diffused glow spilling from the letterbox into the dark */
   box-shadow: 
     0 0 120px rgba(220, 50, 120, 0.15),
     0 0 200px rgba(100, 60, 200, 0.10);
@@ -74,10 +73,9 @@
   height: 100%;
   display: block;
   object-fit: cover;
-  transform: scale(1.02); /* Prevents edge bleeding */
+  transform: scale(1.02);
 }
 
-/* Vignette to smoothly fade the left and right edges of the strip into black */
 .hero-cinematic__strip-overlay {
   position: absolute;
   inset: 0;
@@ -88,8 +86,8 @@
 /* ── The Album Art ── */
 .hero-cinematic__album {
   position: relative;
-  /* Album is larger than the strip height, breaking the letterbox boundaries */
-  width: min(50vh, 420px);
+  /* Guarantee album breaks out of the strip securely on any resolution */
+  width: clamp(300px, 45vh, 450px);
   aspect-ratio: 1/1;
   z-index: 5;
   border-radius: 24px; /* Exact 6% ratio from the Swift app */
@@ -142,4 +140,25 @@
 .hero-cinematic__billing span {
   color: rgba(255, 255, 255, 0.15);
   font-size: 0.8rem;
+}
+
+@media (max-width: 768px) {
+  .hero-cinematic__nav {
+    top: 20px; left: 20px; right: 20px;
+    flex-direction: column;
+    gap: 1rem;
+    align-items: center;
+  }
+  .hero-cinematic__logo { height: 40px; }
+  .hero-cinematic__nav-item { display: none; } /* Hide tagline to save space */
+  .hero-cinematic__album { width: min(70vw, 300px); }
+  .hero-cinematic__strip { height: 25vh; }
+  .hero-cinematic__billing { 
+    bottom: 20px;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 0.5rem;
+    padding: 0 1rem;
+  }
+  .hero-cinematic__billing span { display: none; }
 }
