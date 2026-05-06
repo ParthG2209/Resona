@@ -104,7 +104,7 @@
 }
 
 /* Mobile Responsiveness */
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .footer {
     flex-direction: column;
     align-items: flex-start;
