@@ -1,81 +1,163 @@
 .blueprint {
   width: 100vw;
   background-color: #000;
-  padding: 8rem 4vw;
+  position: relative;
+  padding: 12rem 4vw;
   display: flex;
   justify-content: center;
+  overflow: hidden;
 }
 
-.blueprint__container {
+/* Strict hyper-thin grid background */
+.blueprint__grid-background {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
-  max-width: 900px;
+  height: 100%;
+  background-size: 50px 50px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  z-index: 0;
+  pointer-events: none;
 }
 
-.blueprint__header {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  padding-bottom: 1.5rem;
-  margin-bottom: 3rem;
+.blueprint__laser-container {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 100%;
+  z-index: 1;
+}
+
+.blueprint__laser-line {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to bottom, transparent, #fff 10%, #fff 90%, transparent);
+  transform-origin: top center;
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.8), 0 0 30px rgba(255, 255, 255, 0.4);
+}
+
+.blueprint__content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 1200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .blueprint__title {
   font-family: var(--font-mono, 'Geist Mono', monospace);
   font-size: 0.85rem;
-  letter-spacing: 0.3em;
+  letter-spacing: 0.4em;
   color: rgba(255, 255, 255, 0.5);
-  margin: 0;
+  margin-bottom: 8rem;
+  text-align: center;
+  background: #000;
+  padding: 0.5rem 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
 }
 
-.blueprint__list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+.blueprint__nodes {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  gap: 12rem; /* Spread out for scrolling */
+  padding-bottom: 8rem;
 }
 
-.blueprint__item {
+.blueprint__node {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 2.5rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  transition: border-color 0.3s ease;
+  position: relative;
+  width: 50%;
 }
 
-.blueprint__item:last-child {
-  border-bottom: none;
+/* Alternate sides */
+.blueprint__node:nth-child(odd) {
+  align-self: flex-start;
+  flex-direction: row-reverse;
+  text-align: right;
+  padding-right: 4rem;
 }
 
-.blueprint__item:hover {
-  border-bottom-color: rgba(255, 255, 255, 0.3);
+.blueprint__node:nth-child(even) {
+  align-self: flex-end;
+  text-align: left;
+  padding-left: 4rem;
+}
+
+.blueprint__node-point {
+  width: 12px;
+  height: 12px;
+  background: #000;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
+}
+
+/* Position dots perfectly on the center laser line */
+.blueprint__node:nth-child(odd) .blueprint__node-point {
+  right: -6px;
+}
+
+.blueprint__node:nth-child(even) .blueprint__node-point {
+  left: -6px;
+}
+
+.blueprint__node-data {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .blueprint__label {
   font-family: var(--font-mono, 'Geist Mono', monospace);
   font-size: 0.75rem;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.2em;
   color: rgba(255, 255, 255, 0.4);
-  flex-shrink: 0;
 }
 
 .blueprint__value {
   font-family: var(--font-sans, 'Geist', sans-serif);
-  font-size: clamp(1.2rem, 2.5vw, 1.8rem);
-  font-weight: 500;
+  font-size: clamp(1.5rem, 3vw, 2.5rem);
+  font-weight: 600;
   color: #fff;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.02em;
   text-transform: uppercase;
-  text-align: right;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
 }
 
-@media (max-width: 600px) {
-  .blueprint__item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-    padding: 2rem 0;
+@media (max-width: 768px) {
+  .blueprint__laser-container {
+    left: 20px;
   }
-  .blueprint__value {
+  
+  .blueprint__node {
+    width: 100%;
+  }
+
+  .blueprint__node:nth-child(odd),
+  .blueprint__node:nth-child(even) {
+    align-self: flex-start;
+    flex-direction: row;
     text-align: left;
+    padding-left: 4rem;
+    padding-right: 0;
+  }
+
+  .blueprint__node:nth-child(odd) .blueprint__node-point,
+  .blueprint__node:nth-child(even) .blueprint__node-point {
+    left: 14px; /* aligned with the left-aligned laser */
+    right: auto;
   }
 }
