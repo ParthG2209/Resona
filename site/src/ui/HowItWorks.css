@@ -1,0 +1,102 @@
+.process {
+  width: 100vw;
+  min-height: 100vh;
+  background-color: #080808;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10rem 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.process__container {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6vw;
+  width: 100%;
+  max-width: 1400px;
+}
+
+.process__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+}
+
+/* Base Card Styling for the squares */
+.process__card {
+  width: 24vw;
+  max-width: 400px;
+  min-width: 250px;
+  aspect-ratio: 1 / 1; /* Perfect squares */
+  box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.process__card:hover {
+  transform: scale(1.02) rotate(0deg) translateY(-5px) !important;
+  z-index: 10;
+}
+
+.process__image,
+.process__canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+/* Asymmetrical Rotations & Borders */
+.process__step--source .process__card {
+  border: 6px solid #fff;
+  transform: rotate(-3deg);
+}
+
+.process__step--render .process__card {
+  border: 6px solid #fff;
+  transform: rotate(2deg) translateY(-15px);
+}
+
+.process__step--emotion .process__card {
+  border: 4px solid #222;
+  background: #111;
+  transform: rotate(-1.5deg) translateY(10px);
+}
+
+.process__text {
+  font-family: var(--font-sans, 'Geist', sans-serif);
+  font-size: clamp(2rem, 3.5vw, 4rem);
+  font-weight: 800;
+  color: #fff;
+  text-align: center;
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+
+.process__label {
+  font-family: var(--font-mono, 'Geist Mono', monospace);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.process__footer-track {
+  position: absolute;
+  bottom: 4rem;
+  font-family: var(--font-mono, 'Geist Mono', monospace);
+  font-size: 0.65rem;
+  letter-spacing: 0.4em;
+  color: rgba(255, 255, 255, 0.2);
+  text-transform: uppercase;
+}
