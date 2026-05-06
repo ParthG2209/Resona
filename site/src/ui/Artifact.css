@@ -110,7 +110,22 @@
 }
 
 @media (max-width: 768px) {
+  .artifact { padding: 6rem 1rem; }
   .artifact__monolith {
-    aspect-ratio: 2 / 1;
+    aspect-ratio: 1 / 1;
+    border-radius: 16px;
   }
+  .artifact__ghost-text { font-size: clamp(3rem, 15vw, 6rem); }
+  .artifact__sub-text { font-size: 0.6rem; text-align: center; padding: 0 1rem; }
+}
+
+/* On touch devices where hover doesn't exist, we permanently trigger the active state */
+@media (hover: none) {
+  .artifact__fluid-wrapper { opacity: 0.6; }
+  .artifact__ghost-text {
+    color: #fff;
+    -webkit-text-stroke: 0px rgba(255, 255, 255, 0);
+    text-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+  }
+  .artifact__sub-text { color: rgba(255, 255, 255, 0.9); }
 }
