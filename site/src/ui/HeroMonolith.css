@@ -1,5 +1,10 @@
 /* ═══════════════════════════════════════════════════════════
-   Hero Cinematic — The A24 Editorial Cut
+   Hero Cinematic — The Living Gradient (Refined)
+   ═══════════════════════════════════════════════════════════
+   Full-viewport fluid at full intensity.
+   No text halos — a centered dark scrim + edge vignette
+   handles readability. Accent rules frame the title.
+   Subtle entry animations for polish.
    ═══════════════════════════════════════════════════════════ */
 
 .hero-cinematic {
@@ -11,22 +16,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
   font-family: 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-/* Base film grain over the entire black void */
-.hero-cinematic::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
-  background-size: 200px 200px;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.8;
-}
-
-/* ── Top Nav Badges ── */
+/* ── Top Nav ── */
 .hero-cinematic__nav {
   position: absolute;
   top: 40px;
@@ -36,6 +30,8 @@
   justify-content: space-between;
   align-items: center;
   z-index: 20;
+  opacity: 0;
+  animation: fadeIn 1s ease forwards 0.8s;
 }
 
 .hero-cinematic__logo {
@@ -44,81 +40,265 @@
   display: block;
 }
 
-.hero-cinematic__nav-item {
-  font-size: 0.65rem;
-  letter-spacing: 0.25em;
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 500;
-  text-transform: uppercase;
-}
-
-/* ── The Cinematic Strip (Fluid Shader) ── */
-.hero-cinematic__strip {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  height: clamp(250px, 35vh, 450px); /* Safely clamped widescreen */
-  background: #111;
-  z-index: 1;
-  overflow: hidden;
-  box-shadow: 
-    0 0 120px rgba(220, 50, 120, 0.15),
-    0 0 200px rgba(100, 60, 200, 0.10);
-}
-
-.hero-cinematic__fluid-canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-  transform: scale(1.02);
-}
-
-.hero-cinematic__strip-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to right, #000 0%, rgba(0,0,0,0) 15%, rgba(0,0,0,0) 85%, #000 100%);
-  pointer-events: none;
-}
-
-/* ── The Album Art ── */
-.hero-cinematic__album {
+/* ── Aurora Button ── */
+.hero-cinematic__nav-btn {
   position: relative;
-  /* Guarantee album breaks out of the strip securely on any resolution */
-  width: clamp(300px, 45vh, 450px);
-  aspect-ratio: 1/1;
-  z-index: 5;
-  border-radius: 24px; /* Exact 6% ratio from the Swift app */
-  overflow: hidden;
-  background: #000;
-  /* Extreme Z-depth shadow */
-  box-shadow: 
-    0 60px 100px -20px rgba(0, 0, 0, 0.95),
-    0 30px 60px -10px rgba(0, 0, 0, 0.8),
-    0 0 0 1px rgba(255, 255, 255, 0.15); /* physical edge */
-  
-  transform: translateZ(0); /* Hardware accel for shadow rendering */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 24px;
+  background: rgba(10, 10, 10, 0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 100px;
+  text-decoration: none;
+  transition: all 0.4s ease;
+  z-index: 10;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
-.hero-cinematic__album img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+.hero-cinematic__nav-btn-text {
+  position: relative;
+  z-index: 2;
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  transition: color 0.4s ease;
 }
 
-/* Physical glare on the album cover */
-.hero-cinematic__album-glare {
+.hero-cinematic__nav-btn::after {
+  content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.25) 0%, transparent 30%, transparent 100%);
+  border-radius: 100px;
+  padding: 1px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.15));
+  background-size: 200% 100%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: 1;
   pointer-events: none;
-  mix-blend-mode: overlay;
+  transition: all 0.4s ease;
 }
 
-/* ── Billing Block (Bottom Text) ── */
+.hero-cinematic__nav-btn::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 100px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.2));
+  background-size: 300% 100%;
+  filter: blur(12px);
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+
+.hero-cinematic__nav-btn:hover {
+  background: rgba(0, 0, 0, 0.5);
+  transform: translateY(-1px);
+}
+.hero-cinematic__nav-btn:hover .hero-cinematic__nav-btn-text {
+  color: #fff;
+}
+.hero-cinematic__nav-btn:hover::after {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.4));
+  background-size: 300% 100%;
+  animation: auroraFlow 3s linear infinite;
+}
+.hero-cinematic__nav-btn:hover::before {
+  opacity: 1;
+  animation: auroraFlow 3s linear infinite;
+}
+
+@keyframes auroraFlow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+@media (hover: none) {
+  .hero-cinematic__nav-btn::after {
+    animation: auroraFlow 4s linear infinite;
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   FULL-BLEED FLUID — bright and alive
+   ══════════════════════════════════════════════════════ */
+.hero-cinematic__fluid-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  z-index: 1;
+  filter: saturate(1.4) brightness(1.1);
+}
+
+/* ══════════════════════════════════════════════════════
+   DARK SCRIM — centered readability zone
+   A soft radial gradient that darkens the center area
+   where text sits. NOT a text-shadow. The fluid bleeds
+   through the edges.
+   ══════════════════════════════════════════════════════ */
+.hero-cinematic__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 60% 50% at 50% 50%,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.25) 50%,
+    transparent 100%
+  );
+}
+
+/* ══════════════════════════════════════════════════════
+   EDGE VIGNETTE — cinematic framing
+   Heavy darkening at all four edges.
+   ══════════════════════════════════════════════════════ */
+.hero-cinematic__vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 70% 65% at 50% 50%,
+    transparent 40%,
+    rgba(0, 0, 0, 0.7) 100%
+  );
+}
+
+/* ══════════════════════════════════════════════════════
+   TITLE LOCKUP — accent rules + title + tagline
+   ══════════════════════════════════════════════════════ */
+.hero-cinematic__lockup {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Accent Rules ── thin horizontal lines above/below title */
+.hero-cinematic__rule {
+  width: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.hero-cinematic__rule--top {
+  margin-bottom: 20px;
+  animation: ruleExpand 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: 0.3s;
+}
+
+.hero-cinematic__rule--bottom {
+  margin-top: 20px;
+  animation: ruleExpand 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: 0.5s;
+}
+
+@keyframes ruleExpand {
+  0% { width: 0; opacity: 0; }
+  100% { width: clamp(200px, 40vw, 500px); opacity: 1; }
+}
+
+/* ── The Title ── */
+.hero-cinematic__title {
+  position: relative;
+  margin: 0;
+  font-size: clamp(4rem, 12vw, 13rem);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+  font-weight: 500;
+  letter-spacing: 0.35em;
+  color: rgba(255, 255, 255, 0.95);
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: titleReveal 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: 0.2s;
+  margin-right: -0.35em; /* Counteract letter-spacing for true centering */
+}
+
+@keyframes titleReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Tagline ── */
+.hero-cinematic__tagline {
+  margin-top: 24px;
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: clamp(0.7rem, 1vw, 0.85rem);
+  font-weight: 400;
+  letter-spacing: 0.4em;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  opacity: 0;
+  animation: fadeIn 1s ease forwards;
+  animation-delay: 0.8s;
+  margin-right: -0.4em;
+
+}
+
+/* ══════════════════════════════════════════════════════
+   SCROLL HINT — animated vertical line at bottom
+   ══════════════════════════════════════════════════════ */
+.hero-cinematic__scroll-hint {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: 1px;
+  height: 40px;
+  overflow: hidden;
+  opacity: 0;
+  animation: fadeIn 1s ease forwards 1.5s;
+}
+
+.hero-cinematic__scroll-line {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.5), transparent);
+  animation: scrollDrop 2s ease-in-out infinite;
+}
+
+@keyframes scrollDrop {
+  0% { transform: translateY(-100%); }
+  50% { transform: translateY(100%); }
+  50.01% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* ══════════════════════════════════════════════════════
+   ATMOSPHERE
+   ══════════════════════════════════════════════════════ */
+.hero-cinematic__grain {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  pointer-events: none;
+  z-index: 15;
+  opacity: 0.25;
+}
+
+/* ── Billing Block ── */
 .hero-cinematic__billing {
   position: absolute;
   bottom: 40px;
@@ -127,7 +307,7 @@
   text-align: center;
   font-size: 0.6rem;
   letter-spacing: 0.35em;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.35);
   z-index: 20;
   font-weight: 500;
   display: flex;
@@ -135,6 +315,8 @@
   gap: 16px;
   align-items: center;
   text-transform: uppercase;
+  opacity: 0;
+  animation: fadeIn 1s ease forwards 1.2s;
 }
 
 .hero-cinematic__billing span {
@@ -142,6 +324,17 @@
   font-size: 0.8rem;
 }
 
+/* ══════════════════════════════════════════════════════
+   KEYFRAMES
+   ══════════════════════════════════════════════════════ */
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* ══════════════════════════════════════════════════════
+   MOBILE
+   ══════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
   .hero-cinematic__nav {
     top: 20px; left: 20px; right: 20px;
@@ -150,10 +343,21 @@
     align-items: center;
   }
   .hero-cinematic__logo { height: 40px; }
-  .hero-cinematic__nav-item { display: none; } /* Hide tagline to save space */
-  .hero-cinematic__album { width: min(70vw, 300px); }
-  .hero-cinematic__strip { height: 25vh; }
-  .hero-cinematic__billing { 
+
+  .hero-cinematic__title {
+    font-size: clamp(2.5rem, 15vw, 5rem);
+    letter-spacing: 0.1em;
+  }
+
+  .hero-cinematic__tagline {
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    margin-top: 12px;
+  }
+
+  .hero-cinematic__scroll-hint { bottom: 60px; }
+
+  .hero-cinematic__billing {
     bottom: 20px;
     flex-direction: column;
     gap: 8px;
