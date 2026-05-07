@@ -1,7 +1,10 @@
 /**
- * FluidEngine — WebGL implementation EXACTLY mirroring the Resona App's Metal shader.
- * Converts snoise(float2) and double domain warping perfectly to WebGL.
- */const VERT = `
+ * FluidEngine — WebGL implementation with cursor reactivity.
+ * The base fluid uses double domain-warped simplex noise.
+ * A cursor uniform creates a localized "eruption" — intensified
+ * warping, brightness, and speed near the pointer.
+ */
+const VERT = `
   attribute vec2 a_position;
   varying vec2 v_uv;
   void main() {
@@ -85,13 +88,14 @@ const FRAG = `
       float n5 = snoise((warped + warp2*2.0) * 1.8 + vec2(t*0.35, t*0.15));
       c = mix(c, u_color1*0.6 + u_color3*0.4, smoothstep(-0.2, 0.5, n5) * 0.3);
 
+      // Vignette
       vec2 vc = uv - 0.5;
       float vig = 1.0 - dot(vc, vc) * 0.65;
       c.rgb *= vig;
 
       c.rgb *= 0.72;
 
-      // Dithering: breaks up 8-bit color boundaries to eliminate banding
+      // Dithering
       float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
       c.rgb += (dither / 255.0) - (0.5 / 255.0);
 
@@ -145,25 +149,39 @@ export const PALETTES = {
     rgbToHslBoost(0.45, 0.35, 0.65),
   ],
   starboy: [
-    rgbToHslBoost(0.85, 0.15, 0.25), // Bright Red
-    rgbToHslBoost(0.15, 0.15, 0.35), // Dark Blue
-    rgbToHslBoost(0.95, 0.25, 0.35), // Pinkish Red
-    rgbToHslBoost(0.10, 0.10, 0.15), // Almost Black
-    rgbToHslBoost(0.20, 0.10, 0.20), // Deep Purple
+    rgbToHslBoost(0.85, 0.15, 0.25),
+    rgbToHslBoost(0.15, 0.15, 0.35),
+    rgbToHslBoost(0.95, 0.25, 0.35),
+    rgbToHslBoost(0.10, 0.10, 0.15),
+    rgbToHslBoost(0.20, 0.10, 0.20),
   ],
   takecare: [
-    rgbToHslBoost(0.80, 0.60, 0.20), // Gold
-    rgbToHslBoost(0.30, 0.20, 0.10), // Dark Brown
-    rgbToHslBoost(0.90, 0.75, 0.40), // Light Gold
-    rgbToHslBoost(0.15, 0.10, 0.05), // Very Dark Brown
-    rgbToHslBoost(0.50, 0.35, 0.15), // Mid Brown
+    rgbToHslBoost(0.80, 0.60, 0.20),
+    rgbToHslBoost(0.30, 0.20, 0.10),
+    rgbToHslBoost(0.90, 0.75, 0.40),
+    rgbToHslBoost(0.15, 0.10, 0.05),
+    rgbToHslBoost(0.50, 0.35, 0.15),
   ],
   flowerboy: [
-    rgbToHslBoost(0.95, 0.65, 0.15), // Sunflower Yellow/Orange
-    rgbToHslBoost(0.20, 0.60, 0.30), // Leaf Green
-    rgbToHslBoost(0.95, 0.85, 0.25), // Bright Yellow
-    rgbToHslBoost(0.40, 0.65, 0.85), // Sky Blue
-    rgbToHslBoost(0.85, 0.45, 0.15), // Deep Orange
+    rgbToHslBoost(0.95, 0.65, 0.15),
+    rgbToHslBoost(0.20, 0.60, 0.30),
+    rgbToHslBoost(0.95, 0.85, 0.25),
+    rgbToHslBoost(0.40, 0.65, 0.85),
+    rgbToHslBoost(0.85, 0.45, 0.15),
+  ],
+  singularity: [
+    rgbToHslBoost(0.8, 0.8, 0.8),
+    rgbToHslBoost(0.1, 0.1, 0.1),
+    rgbToHslBoost(0.5, 0.5, 0.5),
+    rgbToHslBoost(0.02, 0.02, 0.02),
+    rgbToHslBoost(0.95, 0.95, 0.95),
+  ],
+  nomoreparties: [
+    rgbToHslBoost(0.96, 0.54, 0.36),
+    rgbToHslBoost(0.25, 0.35, 0.55),
+    rgbToHslBoost(0.88, 0.75, 0.60),
+    rgbToHslBoost(0.12, 0.12, 0.15),
+    rgbToHslBoost(0.90, 0.45, 0.25),
   ]
 };
 
@@ -195,9 +213,9 @@ export default class FluidEngine {
     gl.enableVertexAttribArray(pos);
     gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
     this.u = {
-      time:       gl.getUniformLocation(this.program, 'u_time'),
-      resolution: gl.getUniformLocation(this.program, 'u_resolution'),
-      speed:      gl.getUniformLocation(this.program, 'u_speed'),
+      time:         gl.getUniformLocation(this.program, 'u_time'),
+      resolution:   gl.getUniformLocation(this.program, 'u_resolution'),
+      speed:        gl.getUniformLocation(this.program, 'u_speed'),
       colors: [
         gl.getUniformLocation(this.program, 'u_color0'),
         gl.getUniformLocation(this.program, 'u_color1'),
@@ -228,9 +246,8 @@ export default class FluidEngine {
   }
 
   start() {
-    if (this._animId) return; // already running
+    if (this._animId) return;
 
-    // Set up observer to only render when on-screen
     if (!this._observer) {
       this._observer = new IntersectionObserver((entries) => {
         this._isVisible = entries[0].isIntersecting;
@@ -239,12 +256,12 @@ export default class FluidEngine {
     }
 
     const gl = this.gl;
-    this._isVisible = true; // Assume true until observer fires
+    this._isVisible = true;
 
     const loop = () => {
       this._animId = requestAnimationFrame(loop);
 
-      if (!this._isVisible) return; // Skip WebGL draw calls if off-screen
+      if (!this._isVisible) return;
 
       this.resize();
       const t = (performance.now() - this._startTime) / 1000;
