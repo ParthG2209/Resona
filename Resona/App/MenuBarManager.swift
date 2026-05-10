@@ -27,19 +27,54 @@ final class MenuBarManager: NSObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: "Resona")
-        button.image?.isTemplate = true   // adapts to light/dark menu bar
+
+        if let logoImage = menuBarImage() {
+            button.image = logoImage
+        } else {
+            button.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: "Resona")
+            button.image?.isTemplate = true
+        }
+
         button.action = #selector(togglePopover(_:))
         button.target = self
     }
 
+    private func menuBarImage() -> NSImage? {
+        if let img = NSImage(named: "ResonaMenuBarIcon") {
+            img.isTemplate = false
+            img.size = NSSize(width: 22, height: 22)
+            return img
+        }
+        if let url = Bundle.main.url(forResource: "ResonaMenuBarIcon", withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
+            img.isTemplate = false
+            img.size = NSSize(width: 22, height: 22)
+            return img
+        }
+        return nil
+    }
+
     private func setupPopover() {
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 420)
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(
-            rootView: MenuBarView(detectionService: detectionService)
-        )
+        popover.contentSize = NSSize(width: 300, height: 400)
+        popover.behavior    = .transient
+        popover.animates    = false   // we handle our own open animation
+
+        // ── Fluid glass popover ──────────────────────────────────────────
+        // FluidPopoverViewController layers:
+        //   Metal fluid shader → frosted glass → grain → SwiftUI content
+        let fluidVC = FluidPopoverViewController(detectionService: detectionService)
+        popover.contentViewController = fluidVC
+
+        // Make the popover window itself transparent so rounded corners show
+        // against the desktop without a white halo.
+        // This must be set after contentViewController is assigned.
+        DispatchQueue.main.async {
+            if let popoverWindow = self.popover.contentViewController?.view.window {
+                popoverWindow.backgroundColor = .clear
+                popoverWindow.isOpaque        = false
+            }
+        }
     }
 
     private func setupObservers() {
@@ -47,6 +82,18 @@ final class MenuBarManager: NSObject {
             self,
             selector: #selector(trackDidChange(_:)),
             name: .trackDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(closePopoverForAppAction),
+            name: .closePopoverRequested,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(closePopoverForAppAction),
+            name: .quitRequested,
             object: nil
         )
     }
@@ -65,17 +112,48 @@ final class MenuBarManager: NSObject {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
 
-        // Close popover when user clicks outside
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+        // Make the popover's backing window transparent after it appears
+        // (NSPopover creates its window lazily on first show).
+        DispatchQueue.main.async {
+            if let win = self.popover.contentViewController?.view.window {
+                win.backgroundColor = .clear
+                win.isOpaque        = false
+                win.hasShadow       = true
+            }
+        }
+
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
             self?.closePopover()
         }
     }
 
     private func closePopover() {
-        popover.performClose(nil)
+        // Remove the event monitor first to prevent re-entry during animation
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
+        }
+
+        // Animate out before closing
+        guard let vc = popover.contentViewController else {
+            popover.performClose(nil)
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            vc.view.animator().alphaValue = 0
+        }, completionHandler: {
+            self.popover.performClose(nil)
+            vc.view.alphaValue = 1   // reset for next open
+        })
+    }
+
+    @objc private func closePopoverForAppAction() {
+        if popover.isShown {
+            closePopover()
         }
     }
 
@@ -88,14 +166,9 @@ final class MenuBarManager: NSObject {
     private func updateStatusIcon() {
         guard let button = statusItem.button else { return }
         let isPlaying = detectionService.playbackState == .playing
-
         DispatchQueue.main.async {
-            if isPlaying {
-                button.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: "Resona – Playing")
-            } else {
-                button.image = NSImage(systemSymbolName: "music.note.list", accessibilityDescription: "Resona – Idle")
-            }
-            button.image?.isTemplate = true
+            button.alphaValue = isPlaying ? 1.0 : 0.55
+            button.toolTip    = isPlaying ? "Resona — Playing" : "Resona — Idle"
         }
     }
 }
