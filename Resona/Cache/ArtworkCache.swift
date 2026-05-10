@@ -11,7 +11,9 @@ final class ArtworkCache {
 
     private let fileManager = FileManager.default
     private let cacheRoot: URL
-    private let maxSizeBytes: Int
+    private var maxSizeBytes: Int {
+        AppSettings.shared.maxCacheSizeMB * 1_048_576
+    }
 
     private init() {
         // ~/Library/Caches/com.resona.app/artwork/
@@ -19,8 +21,6 @@ final class ArtworkCache {
         cacheRoot = caches
             .appendingPathComponent(Constants.App.bundleIdentifier)
             .appendingPathComponent(Constants.Cache.directoryName)
-
-        maxSizeBytes = AppSettings.shared.maxCacheSizeMB * 1_048_576
 
         createDirectoriesIfNeeded()
         cleanExpiredFiles()
@@ -63,6 +63,10 @@ final class ArtworkCache {
         Logger.info("Cache cleared", category: .cache)
     }
 
+    func enforceCurrentLimit() {
+        enforceMaxSize()
+    }
+
     // MARK: - Directory Setup
 
     private func createDirectoriesIfNeeded() {
@@ -86,13 +90,14 @@ final class ArtworkCache {
 
         guard let enumerator = fileManager.enumerator(
             at: cacheRoot,
-            includingPropertiesForKeys: [.contentModificationDateKey],
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else { return }
 
         var cleaned = 0
         for case let fileURL as URL in enumerator {
-            guard let attrs = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]),
+            guard let attrs = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
+                  attrs.isRegularFile == true,
                   let modified = attrs.contentModificationDate,
                   modified < expiryDate
             else { continue }
@@ -131,12 +136,13 @@ final class ArtworkCache {
     private func allCachedFiles() -> [CachedFile] {
         guard let enumerator = fileManager.enumerator(
             at: cacheRoot,
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
         ) else { return [] }
 
         return (enumerator.allObjects as? [URL] ?? []).compactMap { url -> CachedFile? in
-            guard let attrs = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            guard let attrs = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]),
+                  attrs.isRegularFile == true
             else { return nil }
             return CachedFile(url: url, fileSize: attrs.fileSize, modificationDate: attrs.contentModificationDate)
         }
