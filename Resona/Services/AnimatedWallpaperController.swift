@@ -107,15 +107,10 @@ final class AnimatedWallpaperController {
         artViews.removeAll()
 
         let old = windows; windows = []
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.5
-            old.forEach { $0.animator().alphaValue = 0 }
-        }, completionHandler: {
-            old.forEach { 
-                $0.orderOut(nil)
-                $0.close()
-            }
-        })
+        for w in old {
+            w.orderOut(nil)
+            w.close()
+        }
     }
 
     // MARK: - Private
