@@ -102,6 +102,7 @@ final class AnimatedWallpaperController {
         // Stop all CABasicAnimation loops on every art view before discarding them.
         for artView in artViews {
             artView.stopAllAnimations()
+            artView.fluidView?.isPaused = true
         }
         artViews.removeAll()
 
@@ -110,7 +111,10 @@ final class AnimatedWallpaperController {
             ctx.duration = 0.5
             old.forEach { $0.animator().alphaValue = 0 }
         }, completionHandler: {
-            old.forEach { $0.orderOut(nil) }
+            old.forEach { 
+                $0.orderOut(nil)
+                $0.close()
+            }
         })
     }
 
@@ -119,9 +123,13 @@ final class AnimatedWallpaperController {
     private func dismissImmediate() {
         for artView in artViews {
             artView.stopAllAnimations()
+            artView.fluidView?.isPaused = true
         }
         artViews.removeAll()
-        windows.forEach { $0.orderOut(nil) }
+        windows.forEach { 
+            $0.orderOut(nil)
+            $0.close()
+        }
         windows.removeAll()
         isShowing = false
         currentTrackID = nil
@@ -144,6 +152,7 @@ final class AnimatedWallpaperController {
         w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         w.isOpaque = true; w.hasShadow = false
         w.ignoresMouseEvents = true; w.backgroundColor = .black
+        w.isReleasedWhenClosed = false
         return w
     }
 }

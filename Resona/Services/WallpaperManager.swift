@@ -8,7 +8,14 @@ import Combine
 final class WallpaperManager {
 
     static let shared = WallpaperManager()
-    private init() { observeSettingsChanges() }
+    private init() { 
+        observeSettingsChanges() 
+        if AppSettings.shared.defaultWallpaperURLString == nil {
+            if let screen = NSScreen.main, let url = NSWorkspace.shared.desktopImageURL(for: screen) {
+                AppSettings.shared.defaultWallpaperURL = url
+            }
+        }
+    }
 
     private let cache        = ArtworkCache.shared
     private let session      = URLSession.shared
@@ -57,6 +64,32 @@ final class WallpaperManager {
                 // update(for:) will check the new value and either show animated
                 // or dismiss + show static.
                 self.update(for: track)
+            }
+            .store(in: &cancellables)
+
+        // defaultWallpaperURLString toggled → apply immediately if not currently showing artwork
+        settings.$defaultWallpaperURLString
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if !self.animatedCtrl.isShowing {
+                    self.revertToUserWallpaper()
+                }
+            }
+            .store(in: &cancellables)
+
+        // onMusicStop toggled → apply immediately if music is stopped
+        settings.$onMusicStop
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] behavior in
+                guard let self else { return }
+                if MusicDetectionService.shared.activeTrack == nil && behavior == .revertToUserWallpaper {
+                    self.revertToUserWallpaper()
+                }
             }
             .store(in: &cancellables)
     }
