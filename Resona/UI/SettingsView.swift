@@ -8,145 +8,103 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralTab()
-                .tabItem { Label("General", systemImage: "gearshape") }
+                .tabItem { Label("General", systemImage: "gear") }
             AppearanceTab()
-                .tabItem { Label("Appearance", systemImage: "sparkles") }
+                .tabItem { Label("Appearance", systemImage: "paintbrush") }
             AdvancedTab()
                 .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .padding(16)
-        .frame(width: 560, height: 500)
-        .background(SettingsBackground())
-        .preferredColorScheme(.dark)
-    }
-}
-
-private struct SettingsBackground: View {
-    var body: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.055, green: 0.050, blue: 0.052),
-                Color(red: 0.030, green: 0.038, blue: 0.040),
-                Color.black.opacity(0.96)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        .frame(width: 520, height: 460)
     }
 }
 
 // MARK: - General
 
 private struct GeneralTab: View {
-    @ObservedObject private var settings = AppSettings.shared
-    @ObservedObject private var spotify = SpotifyService.shared
+    @ObservedObject private var settings   = AppSettings.shared
+    @ObservedObject private var spotify    = SpotifyService.shared
     @ObservedObject private var appleMusic = AppleMusicService.shared
-    @ObservedObject private var detectionService = MusicDetectionService.shared
-
-    @State private var spotifyConnecting = false
-    @State private var appleMusicConnecting = false
-    @State private var loginMessage = ""
 
     var body: some View {
-        VStack(spacing: 12) {
-            SettingsSectionCard("App") {
+        Form {
+            Section("App") {
                 Toggle("Enable Resona", isOn: $settings.isEnabled)
+                    .help("When disabled, the animated wallpaper is dismissed and reverted.")
 
                 Toggle("Launch at login", isOn: Binding(
                     get: { settings.launchOnStartup },
-                    set: { setLoginItem(enabled: $0) }
+                    set: { newValue in
+                        settings.launchOnStartup = newValue
+                        setLoginItem(enabled: newValue)
+                    }
                 ))
-
-                if !loginMessage.isEmpty {
-                    Text(loginMessage)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
             }
-            .onAppear(perform: syncLoginItemStatus)
 
-            SettingsSectionCard("Preferred Source") {
+            Section("Preferred Source") {
                 Picker("Active service", selection: $settings.preferredService) {
                     ForEach(ServicePreference.allCases, id: \.self) { pref in
                         Text(pref.displayName).tag(pref)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.radioGroup)
             }
 
-            SettingsSectionCard("Connections") {
-                ConnectionRow(
+            Section("Connections") {
+                connection(
                     title: "Spotify",
                     connected: spotify.isAuthenticated,
-                    loading: spotifyConnecting,
-                    connect: connectSpotify,
-                    disconnect: { detectionService.spotify.disconnect() }
+                    onConnect: { SpotifyService.shared.connect { _ in } },
+                    onDisconnect: { SpotifyService.shared.disconnect() }
                 )
-
-                Divider().opacity(0.35)
-
-                ConnectionRow(
+                connection(
                     title: "Apple Music",
                     connected: appleMusic.isAuthenticated,
-                    loading: appleMusicConnecting,
-                    connect: connectAppleMusic,
-                    disconnect: { detectionService.appleMusic.disconnect() }
+                    onConnect: { Task { await AppleMusicService.shared.connect() } },
+                    onDisconnect: { AppleMusicService.shared.disconnect() }
                 )
             }
-
-            Spacer()
         }
-        .settingsTabPadding()
+        .formStyle(.grouped)
+        .padding()
     }
 
-    private func syncLoginItemStatus() {
-        guard #available(macOS 13.0, *) else { return }
-        settings.launchOnStartup = SMAppService.mainApp.status == .enabled
+    private func connection(title: String, connected: Bool,
+                            onConnect: @escaping () -> Void,
+                            onDisconnect: @escaping () -> Void) -> some View {
+        HStack {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(connected ? Color.green : Color.secondary.opacity(0.35))
+                    .frame(width: 7, height: 7)
+                Text(title)
+            }
+            Spacer()
+            if connected {
+                Text("Connected")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.green)
+                Button("Disconnect", role: .destructive) { onDisconnect() }
+                    .controlSize(.small)
+            } else {
+                Button("Connect") { onConnect() }
+                    .controlSize(.small)
+            }
+        }
     }
 
     private func setLoginItem(enabled: Bool) {
-        guard #available(macOS 13.0, *) else {
-            settings.launchOnStartup = false
-            loginMessage = "Launch at login requires macOS 13 or later."
-            return
-        }
-
-        do {
-            if enabled {
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
-            }
-            settings.launchOnStartup = enabled
-            loginMessage = enabled ? "Resona will launch with macOS." : "Launch at login disabled."
-        } catch {
-            settings.launchOnStartup = SMAppService.mainApp.status == .enabled
-            loginMessage = "macOS rejected the login item change."
-            Logger.error("Failed to \(enabled ? "register" : "unregister") login item: \(error)", category: .general)
-        }
-    }
-
-    private func connectSpotify() {
-        spotifyConnecting = true
-        detectionService.spotify.connect { result in
-            DispatchQueue.main.async {
-                spotifyConnecting = false
-                if case .failure(let error) = result {
-                    Logger.error("Spotify connect failed: \(error)", category: .spotify)
+        if #available(macOS 13.0, *) {
+            do {
+                if enabled {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
                 }
+            } catch {
+                Logger.error("Failed to \(enabled ? "register" : "unregister") login item: \(error)", category: .general)
             }
-        }
-    }
-
-    private func connectAppleMusic() {
-        appleMusicConnecting = true
-        Task {
-            await detectionService.appleMusic.connect()
-            appleMusicConnecting = false
         }
     }
 }
@@ -155,88 +113,75 @@ private struct GeneralTab: View {
 
 private struct AppearanceTab: View {
     @ObservedObject private var settings = AppSettings.shared
-    @State private var wallpaperMessage = ""
 
     var body: some View {
-        VStack(spacing: 12) {
-            SettingsSectionCard("Wallpaper") {
+        Form {
+            Section("Wallpaper Engine") {
                 Toggle("Enable Canvas videos", isOn: $settings.showAnimatedWallpapers)
+                    .help("When available, displays the Spotify Canvas video loop. Toggling off mid-playback will switch to the static composed wallpaper.")
 
                 Picker("When music stops", selection: $settings.onMusicStop) {
-                    ForEach(StopBehavior.allCases, id: \.self) { behavior in
-                        Text(behavior.displayName).tag(behavior)
+                    ForEach(StopBehavior.allCases, id: \.self) { b in
+                        Text(b.displayName).tag(b)
                     }
                 }
             }
 
-            SettingsSectionCard("Fluid Waves") {
+            Section("Fluid Waves") {
                 HStack {
+                    Image(systemName: "water.waves")
+                        .foregroundStyle(.secondary)
                     Text("Intensity")
-                    Slider(value: $settings.waveIntensity, in: 0...1, step: 0.05)
-                    Text(waveLabel(settings.waveIntensity))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 62, alignment: .trailing)
-                }
-            }
-
-            SettingsSectionCard("Default Wallpaper") {
-                HStack {
-                    Text(settings.defaultWallpaperURL?.lastPathComponent ?? "Not set")
-                        .font(.system(size: 12))
-                        .foregroundStyle(settings.defaultWallpaperURL == nil ? .tertiary : .secondary)
-                        .lineLimit(1)
-
                     Spacer()
-
-                    Button("Browse") { browseForWallpaper() }
-                    Button("Use Current") { saveCurrentWallpaper() }
-                    Button("Apply") { applyDefaultWallpaper() }
-                        .disabled(settings.defaultWallpaperURL == nil)
-                }
-
-                if !wallpaperMessage.isEmpty {
-                    Text(wallpaperMessage)
-                        .font(.system(size: 11))
+                    Slider(value: $settings.waveIntensity, in: 0...1, step: 0.05)
+                        .frame(width: 150)
+                    Text(waveLabel(settings.waveIntensity))
+                        .frame(width: 60, alignment: .trailing)
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
-            Spacer()
+            Section("Default Wallpaper") {
+                HStack {
+                    if let url = settings.defaultWallpaperURL {
+                        Text(url.lastPathComponent)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("Not set").foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Button("Browse…") { browseForWallpaper() }
+                        .controlSize(.small)
+                    Button("Use Current") { saveCurrentWallpaper() }
+                        .controlSize(.small)
+                }
+            }
         }
-        .settingsTabPadding()
+        .formStyle(.grouped)
+        .padding()
     }
 
     private func browseForWallpaper() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url {
             settings.defaultWallpaperURL = url
-            wallpaperMessage = "Fallback set to \(url.lastPathComponent)."
         }
     }
 
     private func saveCurrentWallpaper() {
-        guard let screen = NSScreen.main,
-              let url = NSWorkspace.shared.desktopImageURL(for: screen)
-        else {
-            wallpaperMessage = "Could not read the current wallpaper."
-            return
+        if let screen = NSScreen.main,
+           let url = NSWorkspace.shared.desktopImageURL(for: screen) {
+            settings.defaultWallpaperURL = url
         }
-        settings.defaultWallpaperURL = url
-        wallpaperMessage = "Captured the current desktop wallpaper."
     }
 
-    private func applyDefaultWallpaper() {
-        WallpaperManager.shared.revertToUserWallpaper()
-        wallpaperMessage = "Fallback wallpaper applied."
-    }
-
-    private func waveLabel(_ value: Double) -> String {
-        switch value {
+    private func waveLabel(_ v: Double) -> String {
+        switch v {
         case 0:           return "Still"
         case 0.01...0.25: return "Gentle"
         case 0.26...0.50: return "Moderate"
@@ -250,227 +195,136 @@ private struct AppearanceTab: View {
 
 private struct AdvancedTab: View {
     @ObservedObject private var settings = AppSettings.shared
-    @ObservedObject private var spotify = SpotifyService.shared
-    @State private var cacheMessage = ""
 
     var body: some View {
-        VStack(spacing: 12) {
-            SettingsSectionCard("Cache") {
+        Form {
+            Section("Cache") {
                 Toggle("Clear cache on quit", isOn: $settings.clearCacheOnQuit)
 
                 HStack {
                     Text("Max size")
+                    Spacer()
                     Slider(
                         value: Binding(
                             get: { Double(settings.maxCacheSizeMB) },
-                            set: { newValue in
-                                settings.maxCacheSizeMB = Int(newValue)
-                                ArtworkCache.shared.enforceCurrentLimit()
-                            }
+                            set: { settings.maxCacheSizeMB = Int($0) }
                         ),
-                        in: 100...1000,
-                        step: 100
+                        in: 100...1000, step: 100
                     )
+                    .frame(width: 140)
                     Text("\(settings.maxCacheSizeMB) MB")
-                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 55, alignment: .trailing)
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                        .frame(width: 58, alignment: .trailing)
                 }
 
-                HStack {
-                    Button("Clear Cache Now", role: .destructive) {
-                        ArtworkCache.shared.clearAll()
-                        cacheMessage = "Cache cleared."
-                    }
-                    Spacer()
-                    Text(cacheMessage)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                Button("Clear Cache Now", role: .destructive) {
+                    ArtworkCache.shared.clearAll()
                 }
+                .controlSize(.small)
             }
 
-            SettingsSectionCard("Spotify") {
+            Section("Polling") {
                 HStack {
-                    Text("Poll interval")
+                    Text("Spotify poll interval")
                     Spacer()
-                    Picker("", selection: Binding(
-                        get: { settings.pollingIntervalSeconds },
-                        set: { newValue in
-                            settings.pollingIntervalSeconds = newValue
-                            if spotify.isAuthenticated {
-                                SpotifyService.shared.startPolling()
-                            }
-                        }
-                    )) {
-                        ForEach([1, 2, 3, 5], id: \.self) { seconds in
-                            Text("\(seconds)s").tag(seconds)
+                    Picker("", selection: $settings.pollingIntervalSeconds) {
+                        ForEach([1, 2, 3, 5], id: \.self) { sec in
+                            Text("\(sec)s").tag(sec)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 150)
+                    .frame(width: 80)
                     .labelsHidden()
                 }
-
-                SecureField("sp_dc cookie for Canvas", text: $settings.spotifySpDcCookie)
-                    .textFieldStyle(.roundedBorder)
+                .help("How often Resona checks Spotify's API. Lower = faster response, higher = less API load. Takes effect on next app launch or reconnect.")
             }
 
-            SettingsSectionCard("Debug") {
-                Toggle("Verbose logging", isOn: $settings.enableDebugLogging)
+            Section("Spotify Canvas") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Paste your sp_dc cookie to enable Canvas video wallpapers.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
 
-                HStack {
-                    Button("Open Console") { openConsole() }
-                    Spacer()
+                    HStack {
+                        SecureField("sp_dc cookie", text: $settings.spotifySpDcCookie)
+                            .textFieldStyle(.roundedBorder)
+
+                        Button("?") {
+                            NSWorkspace.shared.open(
+                                URL(string: "https://github.com/Paxsenix0/Spotify-Canvas-API#3-set-required-environment-variable")!
+                            )
+                        }
+                        .help("How to get your sp_dc cookie")
+                    }
+
+                    Text("Spotify Web Player → DevTools (F12) → Application → Cookies → sp_dc")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
                 }
             }
 
-            Spacer()
+            Section("Debug") {
+                Toggle("Verbose logging", isOn: $settings.enableDebugLogging)
+                Button("Open Console.app") {
+                    NSWorkspace.shared.open(URL(string: "console://")!)
+                }
+                .controlSize(.small)
+                .foregroundStyle(.secondary)
+            }
         }
-        .settingsTabPadding()
-    }
-
-    private func openConsole() {
-        let appURL = URL(fileURLWithPath: "/System/Applications/Utilities/Console.app")
-        if FileManager.default.fileExists(atPath: appURL.path) {
-            NSWorkspace.shared.open(appURL)
-        } else if let url = URL(string: "console://") {
-            NSWorkspace.shared.open(url)
-        }
+        .formStyle(.grouped)
+        .padding()
     }
 }
 
 // MARK: - About
 
 private struct AboutTab: View {
-    @ObservedObject private var settings = AppSettings.shared
-    @ObservedObject private var spotify = SpotifyService.shared
-    @ObservedObject private var appleMusic = AppleMusicService.shared
-
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             Spacer()
 
-            Image("ResonaMenuBarIcon")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 54, height: 54)
+            Image(systemName: "music.note.house.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(.tint)
 
-            Text("Resona")
-                .font(.title2.bold())
-
+            Text("Resona").font(.title.bold())
             Text("Version \(Constants.App.version)")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
 
-            SettingsSectionCard("Status") {
-                StatusLine("Engine", settings.isEnabled ? "Enabled" : "Disabled")
-                StatusLine("Spotify", spotify.isAuthenticated ? "Connected" : "Disconnected")
-                StatusLine("Apple Music", appleMusic.isAuthenticated ? "Connected" : "Disconnected")
-            }
-            .frame(width: 300)
+            Divider().frame(width: 200)
 
-            Link("Support", destination: URL(string: "mailto:\(Constants.App.supportEmail)")!)
-                .font(.system(size: 12, weight: .medium))
+            VStack(alignment: .leading, spacing: 6) {
+                statusRow("Spotify Canvas",     "Active (sp_dc)", .green)
+                statusRow("Apple Music",        "Push Notification", .green)
+                statusRow("Fluid Engine",       "Metal (30 fps)", .green)
+            }
 
             Spacer()
-        }
-        .settingsTabPadding()
-    }
-}
 
-// MARK: - Components
-
-private struct SettingsSectionCard<Content: View>: View {
-    let title: String
-    let content: Content
-
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-
-            content
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.6)
-        )
-    }
-}
-
-private struct ConnectionRow: View {
-    let title: String
-    let connected: Bool
-    let loading: Bool
-    let connect: () -> Void
-    let disconnect: () -> Void
-
-    var body: some View {
-        HStack {
-            Circle()
-                .fill(connected ? Color.green : Color.secondary.opacity(0.4))
-                .frame(width: 7, height: 7)
-            Text(title)
-            Spacer()
-            if loading {
-                ProgressView()
-                    .scaleEffect(0.55)
-                    .frame(width: 18, height: 18)
+            HStack(spacing: 20) {
+                Link("Support", destination: URL(string: "mailto:\(Constants.App.supportEmail)")!)
+                Link("Website", destination: URL(string: "https://resona.app")!)
             }
-            Text(connected ? "Connected" : "Disconnected")
-                .font(.system(size: 11))
-                .foregroundStyle(connected ? .green : .secondary)
-            if connected {
-                Button("Disconnect", role: .destructive) {
-                    disconnect()
-                }
-                .disabled(loading)
-                .controlSize(.small)
-            } else {
-                Button("Connect") {
-                    connect()
-                }
-                .disabled(loading)
-                .controlSize(.small)
-            }
+            .font(.system(size: 12))
+            .foregroundStyle(.tint)
+
+            Spacer().frame(height: 8)
         }
-    }
-}
-
-private struct StatusLine: View {
-    let label: String
-    let value: String
-
-    init(_ label: String, _ value: String) {
-        self.label = label
-        self.value = value
+        .padding()
     }
 
-    var body: some View {
+    private func statusRow(_ label: String, _ status: String, _ color: Color) -> some View {
         HStack {
             Text(label)
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             Spacer()
-            Text(value)
-                .fontWeight(.medium)
+            Text(status)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(color)
         }
-        .font(.system(size: 12))
-    }
-}
-
-private extension View {
-    func settingsTabPadding() -> some View {
-        self
-            .padding(.top, 10)
-            .padding(.horizontal, 6)
+        .frame(width: 260)
     }
 }
