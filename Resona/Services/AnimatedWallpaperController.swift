@@ -456,6 +456,7 @@ final class AnimatedArtworkView: NSView {
             DispatchQueue.main.async {
                 capturedFluid?.updateColors(from: palette)
                 self.updateGlowColor(dominant, in: self.bounds)
+                PopoverPaletteSync.shared.push(colors: palette)
             }
         }
     }
