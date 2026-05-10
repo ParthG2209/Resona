@@ -29,8 +29,6 @@ final class WallpaperManager {
 
         // isEnabled toggled off → dismiss wallpaper instantly
         settings.$isEnabled
-            .dropFirst() // skip initial value
-            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] enabled in
                 guard let self else { return }
@@ -47,8 +45,6 @@ final class WallpaperManager {
 
         // showAnimatedWallpapers toggled → switch mode for current track
         settings.$showAnimatedWallpapers
-            .dropFirst()
-            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] animated in
                 guard let self else { return }
