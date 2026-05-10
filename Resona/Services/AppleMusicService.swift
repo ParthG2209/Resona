@@ -58,10 +58,6 @@ final class AppleMusicService: ObservableObject {
     }
 
     // MARK: - Monitoring
-    //
-    // The ONLY thing we do is listen for the distributed notification.
-    // Music.app pushes this every time: play, pause, stop, next track, etc.
-    // Zero CPU cost when nothing is happening — the OS delivers it to us.
 
     func startMonitoring() {
         stopMonitoring()
@@ -73,12 +69,17 @@ final class AppleMusicService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            var info: [String: Any] = [:]
-            notification.userInfo?.forEach { key, value in
-                if let strKey = key as? String { info[strKey] = value }
-            }
+            // Fix: snapshot the userInfo dictionary immediately on this thread
+            // before crossing any actor boundary. This satisfies Swift 6's
+            // requirement that captured vars are not mutated concurrently.
+            let snapshot: [String: Any] = notification.userInfo?.reduce(into: [:]) { result, pair in
+                if let key = pair.key as? String {
+                    result[key] = pair.value
+                }
+            } ?? [:]
+
             Task { @MainActor [weak self] in
-                self?.handleMusicNotification(userInfo: info)
+                self?.handleMusicNotification(userInfo: snapshot)
             }
         }
     }
@@ -114,19 +115,6 @@ final class AppleMusicService: ObservableObject {
     }
 
     // MARK: - Process Track Change
-    //
-    // Artwork and Canvas come entirely from SpotifySearchService, which uses a
-    // per-user Authorization Code token — no shared app-level Client Credentials.
-    //
-    // Token priority inside SpotifySearchService.lookup():
-    //   1. SpotifyService already has a valid playback token → reused, no second login
-    //   2. SpotifySearchService has its own stored token → used silently
-    //   3. No token at all → lookup returns nil, we post appleMusicNeedsSpotifyLink
-    //      so the UI can show the "Link Spotify" prompt
-    //
-    // In case 3 the Track is still emitted immediately with nil artworkURL so the
-    // rest of the pipeline (playback state, menu bar metadata) is not blocked.
-    // Once the user links Spotify, the next track change will succeed.
 
     private func processTrackChange(name: String, artist: String, album: String) {
         let trackID = "\(name)-\(artist)"
