@@ -187,6 +187,7 @@ final class WallpaperManager {
                     var opts = ws.desktopImageOptions(for: screen) ?? [:]
                     opts[.fillColor] = NSColor.black
                     opts[.imageScaling] = NSImageScaling.scaleProportionallyUpOrDown.rawValue
+                    opts[.allowClipping] = NSNumber(value: true)
                     try ws.setDesktopImageURL(url, for: screen, options: opts)
                     Logger.info("Wallpaper set: \(url.lastPathComponent)", category: .wallpaper)
                 } catch {

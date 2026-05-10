@@ -155,8 +155,6 @@ private struct AppearanceTab: View {
                     Spacer()
                     Button("Browse…") { browseForWallpaper() }
                         .controlSize(.small)
-                    Button("Use Current") { saveCurrentWallpaper() }
-                        .controlSize(.small)
                 }
             }
         }
@@ -169,13 +167,6 @@ private struct AppearanceTab: View {
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
-            settings.defaultWallpaperURL = url
-        }
-    }
-
-    private func saveCurrentWallpaper() {
-        if let screen = NSScreen.main,
-           let url = NSWorkspace.shared.desktopImageURL(for: screen) {
             settings.defaultWallpaperURL = url
         }
     }

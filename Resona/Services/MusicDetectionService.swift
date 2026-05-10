@@ -141,10 +141,12 @@ final class MusicDetectionService: ObservableObject {
     // MARK: - Applying Track
 
     private func applyTrack(_ track: Track) {
-        guard AppSettings.shared.isEnabled else { return }
         activeTrack   = track
         activeSource  = track.source
         playbackState = .playing
+        
+        guard AppSettings.shared.isEnabled else { return }
+        
         Logger.info("Applying track: \(track.name) from \(track.source.displayName)", category: .general)
         wallpaperManager.update(for: track)
     }
