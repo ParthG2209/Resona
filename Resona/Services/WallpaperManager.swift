@@ -10,11 +10,6 @@ final class WallpaperManager {
     static let shared = WallpaperManager()
     private init() { 
         observeSettingsChanges() 
-        if AppSettings.shared.defaultWallpaperURLString == nil {
-            if let screen = NSScreen.main, let url = NSWorkspace.shared.desktopImageURL(for: screen) {
-                AppSettings.shared.defaultWallpaperURL = url
-            }
-        }
     }
 
     private let cache        = ArtworkCache.shared
@@ -176,21 +171,27 @@ final class WallpaperManager {
     // MARK: - Apply Static
 
     private func applyStatic(fileURL: URL) {
-        DispatchQueue.main.async { self.setWallpaper(url: fileURL) }
+        // Just call setWallpaper directly, it handles background dispatch.
+        setWallpaper(url: fileURL)
     }
 
     private func setWallpaper(url: URL) {
         let ws = NSWorkspace.shared
         let screens = AppSettings.shared.isEnabled ? NSScreen.screens : [NSScreen.main].compactMap { $0 }
-        for screen in screens {
-            do {
-                var opts = ws.desktopImageOptions(for: screen) ?? [:]
-                opts[.fillColor] = NSColor.black
-                opts[.imageScaling] = NSImageScaling.scaleProportionallyUpOrDown.rawValue
-                try ws.setDesktopImageURL(url, for: screen, options: opts)
-                Logger.info("Wallpaper set: \(url.lastPathComponent)", category: .wallpaper)
-            } catch {
-                Logger.error("Failed to set wallpaper: \(error)", category: .wallpaper)
+        
+        // Setting desktop image on the main thread causes significant UI lag (rainbow wheel).
+        // Dispatch to a background thread to keep the app highly responsive.
+        DispatchQueue.global(qos: .userInitiated).async {
+            for screen in screens {
+                do {
+                    var opts = ws.desktopImageOptions(for: screen) ?? [:]
+                    opts[.fillColor] = NSColor.black
+                    opts[.imageScaling] = NSImageScaling.scaleProportionallyUpOrDown.rawValue
+                    try ws.setDesktopImageURL(url, for: screen, options: opts)
+                    Logger.info("Wallpaper set: \(url.lastPathComponent)", category: .wallpaper)
+                } catch {
+                    Logger.error("Failed to set wallpaper: \(error)", category: .wallpaper)
+                }
             }
         }
     }

@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import ServiceManagement
 
 // MARK: - AppSettings
 //
@@ -53,7 +54,13 @@ final class AppSettings: ObservableObject {
 
     private init() {
         isEnabled                  = Self.load("isEnabled")                  ?? true
-        launchOnStartup            = Self.load("launchOnStartup")            ?? false
+        
+        if #available(macOS 13.0, *) {
+            launchOnStartup        = SMAppService.mainApp.status == .enabled
+        } else {
+            launchOnStartup        = Self.load("launchOnStartup")            ?? false
+        }
+        
         preferredService           = Self.load("preferredService")           ?? .both
         showAnimatedWallpapers     = Self.load("showAnimatedWallpapers")     ?? true
         onMusicStop                = Self.load("onMusicStop")                ?? .keepLastArt
