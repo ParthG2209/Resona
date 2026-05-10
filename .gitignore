@@ -32,4 +32,4 @@ build/
 *.dSYM.zip
 *.hmap
 
-# Ignored Folders
+design_system.md
