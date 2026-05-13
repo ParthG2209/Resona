@@ -12,7 +12,7 @@
  */
 
 // ── STEP 1: Paste your Formspree endpoint here ──
-export const FORMSPREE_ENDPOINT = 'https://formspree.io/f/REPLACE_WITH_YOUR_FORM_ID';
+export const FORMSPREE_ENDPOINT = 'https://formspree.io/f/mjglzaze';
 
 // ── STEP 2: Update this URL when you upload a new DMG ──
 export const DOWNLOAD_URL = '/Resona.dmg';
