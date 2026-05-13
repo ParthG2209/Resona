@@ -1,15 +1,20 @@
 /**
  * Download configuration for Resona.
- * 
- * Update DOWNLOAD_URL when you upload a new build.
- * The easiest free option is GitHub Releases:
- *   1. Create a repo (or use existing) on GitHub
- *   2. Go to Releases → Draft a new release
- *   3. Upload dist/Resona.dmg as a release asset
- *   4. Copy the asset URL and paste it below
+ *
+ * SETUP STEPS:
+ * 1. Go to https://formspree.io → Sign up free → New Form
+ * 2. Copy your form endpoint (looks like https://formspree.io/f/abcdefgh)
+ * 3. Paste it as FORMSPREE_ENDPOINT below
+ *
+ * 4. Update DOWNLOAD_URL when you upload your DMG to GitHub Releases:
+ *    → Go to your GitHub repo → Releases → Draft a new release
+ *    → Upload dist/Resona.dmg → copy the asset URL → paste below
  */
 
-// ── UPDATE THIS URL when you upload a new DMG ──
+// ── STEP 1: Paste your Formspree endpoint here ──
+export const FORMSPREE_ENDPOINT = 'https://formspree.io/f/REPLACE_WITH_YOUR_FORM_ID';
+
+// ── STEP 2: Update this URL when you upload a new DMG ──
 export const DOWNLOAD_URL = '/Resona.dmg';
 
 // Metadata shown on the download button
