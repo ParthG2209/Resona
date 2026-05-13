@@ -1,6 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import FluidEngine from '../engine/FluidEngine';
-import { DOWNLOAD_URL } from '../config/download';
 import './HeroMonolith.css';
 
 /**
@@ -36,7 +35,14 @@ export default function HeroMonolith({ engineRef }) {
         <div className="hero-cinematic__nav-brand">
           <img src="/resona_logo.png" alt="Resona" className="hero-cinematic__logo" />
         </div>
-        <a href={DOWNLOAD_URL} download className="hero-cinematic__nav-btn">
+        <a
+          href="#download"
+          className="hero-cinematic__nav-btn"
+          onClick={(e) => {
+            e.preventDefault();
+            document.getElementById('download')?.scrollIntoView({ behavior: 'smooth' });
+          }}
+        >
           <span className="hero-cinematic__nav-btn-text">GET RESONΛ</span>
         </a>
       </nav>
