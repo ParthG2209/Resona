@@ -29,7 +29,10 @@ import MetalKit
 final class AnimatedWallpaperController {
 
     static let shared = AnimatedWallpaperController()
-    private init() { observeScreenChanges() }
+    private init() { 
+        observeScreenChanges()
+        observePlaybackState()
+    }
 
     // MARK: - State
 
@@ -137,6 +140,26 @@ final class AnimatedWallpaperController {
         ) { [weak self] _ in
             guard let self, self.isShowing else { return }
             self.dismissImmediate()
+        }
+    }
+
+    private func observePlaybackState() {
+        NotificationCenter.default.addObserver(
+            forName: .playbackStateDidChange,
+            object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let self, self.isShowing else { return }
+            guard let state = notification.object as? PlaybackState else { return }
+            
+            for artView in self.artViews {
+                if state == .playing {
+                    artView.fluidView?.isPaused = false
+                    artView.resumeCanvasPlayer()
+                } else {
+                    artView.fluidView?.isPaused = true
+                    artView.pauseCanvasPlayer()
+                }
+            }
         }
     }
 
@@ -632,6 +655,14 @@ final class AnimatedArtworkView: NSView {
     }
 
     // MARK: - Canvas player teardown
+    
+    func pauseCanvasPlayer() {
+        canvasPlayer?.pause()
+    }
+
+    func resumeCanvasPlayer() {
+        canvasPlayer?.play()
+    }
 
     private func stopCanvasPlayer() {
         canvasPlayer?.pause()

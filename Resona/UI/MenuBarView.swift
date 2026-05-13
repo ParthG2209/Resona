@@ -35,6 +35,7 @@ struct MenuBarView: View {
     @State private var spotifyConnecting     = false
     @State private var appleMusicConnecting  = false
     @State private var copiedLink            = false
+    @State private var showSpotifyLinkPrompt = false
 
     var body: some View {
         ZStack {
@@ -55,12 +56,22 @@ struct MenuBarView: View {
 
             VStack(spacing: 10) {
                 portalCard
+                
+                if showSpotifyLinkPrompt && !spotify.isAuthenticated {
+                    linkSpotifyBanner
+                }
+                
                 consoleCard
                 footer
             }
             .padding(12)
         }
-        .frame(width: 300, height: 400)
+        .frame(width: 300, height: showSpotifyLinkPrompt && !spotify.isAuthenticated ? 460 : 400)
+        .onReceive(NotificationCenter.default.publisher(for: .appleMusicNeedsSpotifyLink)) { _ in
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                showSpotifyLinkPrompt = true
+            }
+        }
     }
 
     // MARK: - Portal
@@ -115,8 +126,6 @@ struct MenuBarView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-
-                        progressRail(track)
                     }
                     .padding(14)
                 }
@@ -232,6 +241,38 @@ struct MenuBarView: View {
         .glassCard()
     }
 
+    // MARK: - Spotify Link Banner
+    
+    private var linkSpotifyBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.yellow)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Spotify Required")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                
+                Text("Link Spotify below to fetch high-res artwork & canvas videos for Apple Music.")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.yellow.opacity(0.15))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.yellow.opacity(0.3), lineWidth: 1)
+        )
+    }
+
     // MARK: - Footer
 
     private var footer: some View {
@@ -288,30 +329,6 @@ struct MenuBarView: View {
         case .paused:  return "Paused"
         case .stopped: return "Idle"
         }
-    }
-
-    private func progressRail(_ track: Track) -> some View {
-        let progress: Double = {
-            guard track.durationMs > 0 else { return 0 }
-            return min(max(Double(track.progressMs) / Double(track.durationMs), 0), 1)
-        }()
-
-        return GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.white.opacity(0.12))
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.85), Color.white.opacity(0.26)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(width: max(6, geo.size.width * progress))
-            }
-        }
-        .frame(height: 4)
     }
 
     private func pill(_ label: String, icon: String, active: Bool,
@@ -424,58 +441,73 @@ struct MenuBarView: View {
 private struct AlbumPortalArt: View {
     let url: URL?
     let isPlaying: Bool
+    
+    @State private var isSpinning = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let rotation = isPlaying ? Angle.degrees(t.truncatingRemainder(dividingBy: 24) / 24 * 360) : Angle.degrees(0)
+        ZStack {
+            Circle()
+                .strokeBorder(
+                    AngularGradient(
+                        colors: [
+                            Color.white.opacity(0.10),
+                            Color.white.opacity(0.42),
+                            Color.white.opacity(0.10)
+                        ],
+                        center: .center
+                    ),
+                    lineWidth: 1.2
+                )
+                .rotationEffect(.degrees(isSpinning ? 360 : 0))
+                .blur(radius: 0.2)
 
-            ZStack {
-                Circle()
-                    .strokeBorder(
-                        AngularGradient(
-                            colors: [
-                                Color.white.opacity(0.10),
-                                Color.white.opacity(0.42),
-                                Color.white.opacity(0.10)
-                            ],
-                            center: .center
-                        ),
-                        lineWidth: 1.2
-                    )
-                    .rotationEffect(rotation)
-                    .blur(radius: 0.2)
-
-                AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase {
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        ZStack {
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.10), Color.white.opacity(0.03)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                            Image(systemName: "music.note")
-                                .font(.system(size: 24, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.34))
-                        }
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.10), Color.white.opacity(0.03)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        Image(systemName: "music.note")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.34))
                     }
                 }
-                .frame(width: 82, height: 82)
-                .clipShape(Circle())
-                .rotationEffect(rotation)
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.8))
-                .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 7)
-
-                Circle()
-                    .fill(Color.black.opacity(0.28))
-                    .frame(width: 13, height: 13)
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.6))
             }
-            .frame(width: 92, height: 92)
+            .frame(width: 82, height: 82)
+            .clipShape(Circle())
+            .rotationEffect(.degrees(isSpinning ? 360 : 0))
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.8))
+            .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 7)
+
+            Circle()
+                .fill(Color.black.opacity(0.28))
+                .frame(width: 13, height: 13)
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.6))
+        }
+        .frame(width: 92, height: 92)
+        .onChange(of: isPlaying) { playing in
+            if playing {
+                withAnimation(.linear(duration: 24).repeatForever(autoreverses: false)) {
+                    isSpinning = true
+                }
+            } else {
+                withAnimation {
+                    isSpinning = false
+                }
+            }
+        }
+        .onAppear {
+            if isPlaying {
+                withAnimation(.linear(duration: 24).repeatForever(autoreverses: false)) {
+                    isSpinning = true
+                }
+            }
         }
     }
 }
@@ -484,55 +516,29 @@ private struct PortalBackdropView: View {
     let isPlaying: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-            Canvas { context, size in
-                let t = timeline.date.timeIntervalSinceReferenceDate * (isPlaying ? 0.42 : 0.18)
-                let width = size.width
-                let height = size.height
-
-                context.fill(
-                    Path { path in
-                        path.addRect(CGRect(origin: .zero, size: size))
-                    },
-                    with: .linearGradient(
-                        Gradient(colors: [
-                            Color.black.opacity(0.22),
-                            Color.black.opacity(0.46)
-                        ]),
-                        startPoint: CGPoint(x: 0, y: 0),
-                        endPoint: CGPoint(x: width, y: height)
-                    )
-                )
-
-                let shimmerX = width * (0.5 + 0.42 * CGFloat(sin(t * 0.55)))
-                let shimmerRect = CGRect(x: shimmerX - 80, y: -20, width: 160, height: height + 40)
-                context.fill(
-                    Path(ellipseIn: shimmerRect),
-                    with: .radialGradient(
-                        Gradient(colors: [
-                            Color.white.opacity(isPlaying ? 0.16 : 0.08),
-                            Color.clear
-                        ]),
-                        center: CGPoint(x: shimmerX, y: height * 0.40),
-                        startRadius: 0,
-                        endRadius: 110
-                    )
-                )
-
-                let glowY = height * (0.36 + 0.12 * CGFloat(cos(t * 0.7)))
-                context.fill(
-                    Path(ellipseIn: CGRect(x: -40, y: glowY - 95, width: width + 80, height: 190)),
-                    with: .radialGradient(
-                        Gradient(colors: [
-                            Color.white.opacity(isPlaying ? 0.09 : 0.045),
-                            Color.clear
-                        ]),
-                        center: CGPoint(x: width * 0.5, y: glowY),
-                        startRadius: 0,
-                        endRadius: 150
-                    )
-                )
-            }
+        ZStack {
+            // Static background gradient instead of TimelineView canvas
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.22),
+                    Color.black.opacity(0.46)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            
+            // Soft static glows
+            Circle()
+                .fill(Color.white.opacity(isPlaying ? 0.08 : 0.04))
+                .blur(radius: 40)
+                .frame(width: 200, height: 200)
+                .offset(x: -20, y: -40)
+            
+            Circle()
+                .fill(Color.white.opacity(isPlaying ? 0.06 : 0.03))
+                .blur(radius: 60)
+                .frame(width: 250, height: 250)
+                .offset(x: 40, y: 60)
         }
     }
 }

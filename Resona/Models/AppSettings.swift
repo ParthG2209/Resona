@@ -67,7 +67,7 @@ final class AppSettings: ObservableObject {
         waveIntensity              = Self.load("waveIntensity")              ?? 0.5
         clearCacheOnQuit           = Self.load("clearCacheOnQuit")           ?? false
         maxCacheSizeMB             = Self.load("maxCacheSizeMB")             ?? 500
-        pollingIntervalSeconds     = Self.load("pollingIntervalSeconds")     ?? 1
+        pollingIntervalSeconds     = Self.load("pollingIntervalSeconds")     ?? 5
         enableDebugLogging         = Self.load("enableDebugLogging")         ?? false
         defaultWallpaperURLString  = Self.load("defaultWallpaperURLString")
         spotifyConnected           = Self.load("spotifyConnected")           ?? false

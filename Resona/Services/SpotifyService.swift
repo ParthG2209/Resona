@@ -217,7 +217,7 @@ final class SpotifyService: ObservableObject {
         pollCount204 = 0
         hasDiagnosed = false
         let userInterval = TimeInterval(AppSettings.shared.pollingIntervalSeconds)
-        currentPollInterval = max(userInterval, 1.0) // floor to 1s
+        currentPollInterval = max(userInterval, 5.0) // floor to 5s to save battery
         print("[Resona] Starting Spotify polling every \(currentPollInterval)s")
         schedulePoll(interval: currentPollInterval)
         fetchCurrentlyPlaying()

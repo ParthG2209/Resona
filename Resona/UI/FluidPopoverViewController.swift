@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import MetalKit
 
 // MARK: - FluidPopoverViewController
 //
@@ -23,6 +24,7 @@ final class FluidPopoverViewController: NSViewController {
 
     private let detectionService: MusicDetectionService
     private var fluidView: PopoverFluidBackground?
+    private var grainLayer: GrainLayer?
 
     // MARK: - Init
 
@@ -56,6 +58,11 @@ final class FluidPopoverViewController: NSViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        
+        fluidView?.preferredFramesPerSecond = 30
+        fluidView?.isPaused = false
+        grainLayer?.resume()
+        
         // Animate in: fluid fades up from slightly below
         view.alphaValue = 0
         view.frame.origin.y -= 6
@@ -65,6 +72,12 @@ final class FluidPopoverViewController: NSViewController {
             view.animator().alphaValue = 1
             view.animator().frame.origin.y += 6
         }
+    }
+    
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        fluidView?.isPaused = true
+        grainLayer?.pause()
     }
 
     // MARK: - Layer stack construction
@@ -99,6 +112,7 @@ final class FluidPopoverViewController: NSViewController {
         let grain = GrainLayer(bounds: bounds)
         grain.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         view.layer?.addSublayer(grain)
+        grainLayer = grain
 
         // ── Layer 4: SwiftUI content ──────────────────────────────────────
         let content = NSHostingView(
@@ -149,6 +163,21 @@ private final class GrainLayer: CALayer {
         anim.duration    = 8.0
         anim.repeatCount = .infinity
         add(anim, forKey: "grainDrift")
+    }
+    
+    func pause() {
+        let pausedTime = convertTime(CACurrentMediaTime(), from: nil)
+        speed = 0.0
+        timeOffset = pausedTime
+    }
+
+    func resume() {
+        let pausedTime = timeOffset
+        speed = 1.0
+        timeOffset = 0.0
+        beginTime = 0.0
+        let timeSincePause = convertTime(CACurrentMediaTime(), from: nil) - pausedTime
+        beginTime = timeSincePause
     }
 
     private func makeGrainImage(size: CGSize) -> CGImage? {
