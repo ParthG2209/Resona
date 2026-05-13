@@ -2,6 +2,7 @@ import './Artifact.css';
 
 import { useEffect, useRef, useState } from 'react';
 import FluidEngine from '../engine/FluidEngine';
+import { DOWNLOAD_URL, DOWNLOAD_META } from '../config/download';
 import './Artifact.css';
 
 export default function Artifact() {
@@ -27,7 +28,8 @@ export default function Artifact() {
     <section className="artifact">
       <div className="artifact__container">
         <a 
-          href="#" 
+          href={DOWNLOAD_URL}
+          download
           className={`artifact__monolith ${isHovered ? 'artifact__monolith--active' : ''}`}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
@@ -39,7 +41,7 @@ export default function Artifact() {
           
           <div className="artifact__content">
             <span className="artifact__ghost-text">DOWNLOAD</span>
-            <span className="artifact__sub-text">MAC OS X • UNIVERSAL BINARY • 48MB</span>
+            <span className="artifact__sub-text">MACOS • {DOWNLOAD_META.arch} • v{DOWNLOAD_META.version}</span>
           </div>
         </a>
       </div>

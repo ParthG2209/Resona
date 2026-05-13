@@ -1,4 +1,5 @@
 import './Footer.css';
+import { DOWNLOAD_URL } from '../config/download';
 
 export default function Footer() {
   return (
@@ -26,7 +27,7 @@ export default function Footer() {
       <div className="footer__right">
         <div className="footer__info-group">
           <span className="footer__label">PRODUCT</span>
-          <a href="#" className="footer__link">Download Beta</a>
+          <a href={DOWNLOAD_URL} download className="footer__link">Download Beta</a>
           <a href="#" className="footer__link">Release Notes</a>
         </div>
         <div className="footer__info-group">
