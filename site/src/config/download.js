@@ -19,7 +19,7 @@ export const DOWNLOAD_URL = 'https://github.com/ParthG2209/Resona/releases/downl
 
 // Metadata shown on the download button
 export const DOWNLOAD_META = {
-  version: '1.0.0-beta',
+  version: '0.1.0-beta',
   platform: 'macOS',
   arch: 'Apple Silicon',
   size: '~48 MB',
