@@ -15,7 +15,7 @@
 export const FORMSPREE_ENDPOINT = 'https://formspree.io/f/mjglzaze';
 
 // ── STEP 2: Update this URL when you upload a new DMG ──
-export const DOWNLOAD_URL = '/Resona.dmg';
+export const DOWNLOAD_URL = 'https://github.com/ParthG2209/Resona/releases/download/0.1.0-alpha/Resona.dmg';
 
 // Metadata shown on the download button
 export const DOWNLOAD_META = {
