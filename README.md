@@ -10,17 +10,17 @@
 </p>
 
 <p align="center">
-  <a href="https://resona-zeta.vercel.app"><img src="https://img.shields.io/badge/website-resona-000000?style=for-the-badge&logo=vercel&logoColor=white" alt="Website"></a>
-  <a href="https://github.com/ParthG2209/Resona/releases"><img src="https://img.shields.io/github/v/release/ParthG2209/Resona?include_prereleases&style=for-the-badge&label=download&color=000000" alt="Download"></a>
+  <a href="https://resona-zeta.vercel.app"><img src="https://img.shields.io/badge/Website-resona-ff4d00?style=for-the-badge&logo=vercel&logoColor=white" alt="Website"></a>
+  <a href="https://github.com/ParthG2209/Resona/releases"><img src="https://img.shields.io/github/v/release/ParthG2209/Resona?include_prereleases&style=for-the-badge&label=download&color=00e1ff" alt="Download"></a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/platform-macOS%2013+-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS 13+">
-  <img src="https://img.shields.io/badge/swift-5.9+-000000?style=flat-square&logo=swift&logoColor=F05138" alt="Swift 5.9+">
-  <img src="https://img.shields.io/badge/Metal-GPU%20Accelerated-000000?style=flat-square&logo=apple&logoColor=white" alt="Metal">
-  <img src="https://img.shields.io/badge/architecture-Apple%20Silicon-000000?style=flat-square&logo=apple&logoColor=white" alt="Apple Silicon">
-  <img src="https://img.shields.io/github/license/ParthG2209/Resona?style=flat-square&color=000000" alt="License">
-  <img src="https://img.shields.io/github/stars/ParthG2209/Resona?style=flat-square&color=000000" alt="Stars">
+  <img src="https://img.shields.io/badge/platform-macOS%2013+-111111?style=flat-square&logo=apple&logoColor=white" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/swift-5.9+-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.9+">
+  <img src="https://img.shields.io/badge/Metal-GPU%20Accelerated-8B5CF6?style=flat-square&logo=apple&logoColor=white" alt="Metal">
+  <img src="https://img.shields.io/badge/arch-Apple%20Silicon-333333?style=flat-square&logo=apple&logoColor=white" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT License">
+  <img src="https://img.shields.io/github/stars/ParthG2209/Resona?style=flat-square&color=f59e0b" alt="Stars">
 </p>
 
 ---
