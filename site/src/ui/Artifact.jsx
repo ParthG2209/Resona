@@ -138,9 +138,34 @@ export default function Artifact() {
 
           {/* ── Phase: success ── */}
           {phase === 'success' && (
-            <div className="artifact__content artifact__content--center">
+            <div className="artifact__content artifact__content--center artifact__content--success">
               <span className="artifact__ghost-text artifact__ghost-text--sm">YOU'RE IN</span>
-              <span className="artifact__sub-text">Your download has started. We'll be in touch.</span>
+              <span className="artifact__sub-text" style={{ marginBottom: '1rem' }}>Your download has started. We'll be in touch.</span>
+              
+              <div className="artifact__terminal-block" onClick={(e) => e.stopPropagation()}>
+                <p className="artifact__terminal-desc">Since the app isn't notarized yet, macOS Gatekeeper may flag it as "damaged". Run this in Terminal to fix it:</p>
+                <div className="artifact__terminal-code">
+                  <code>xattr -cr /Applications/Resona.app</code>
+                  <button 
+                    className="artifact__copy-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText('xattr -cr /Applications/Resona.app');
+                      e.currentTarget.classList.add('copied');
+                      setTimeout(() => e.currentTarget.classList.remove('copied'), 2000);
+                    }}
+                    title="Copy to clipboard"
+                  >
+                    <svg className="copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                    <svg className="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
