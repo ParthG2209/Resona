@@ -123,7 +123,11 @@ Resona includes automatic conflict resolution. If both services are playing simu
 1. Visit [resona-zeta.vercel.app](https://resona-zeta.vercel.app) or the [Releases](https://github.com/ParthG2209/Resona/releases) page
 2. Download `Resona.dmg`
 3. Open the DMG and drag `Resona.app` into your Applications folder
-4. On first launch, right-click the app, click **Open**, then click **Open** in the confirmation dialog (required once because the app is not notarized)
+4. Because the app is not signed/notarized, macOS Gatekeeper may flag it as "damaged". Open Terminal and run the following command to clear the quarantine attributes:
+   ```bash
+   xattr -cr /Applications/Resona.app
+   ```
+5. On first launch, right-click the app, click **Open**, then click **Open** in the confirmation dialog.
 
 ### Build from Source
 
