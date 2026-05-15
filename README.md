@@ -25,6 +25,13 @@
 
 ---
 
+> [!IMPORTANT]
+> **Resona is currently in a closed beta.** Due to Spotify API limits for development applications, the beta is strictly limited to **25 members**. 
+> 
+> To request access, please email **[getresona@gmail.com](mailto:getresona@gmail.com)** so your account can be manually added to the developer dashboard.
+
+---
+
 ## Overview
 
 Resona detects what you are listening to — on **Spotify** or **Apple Music** — and renders an animated fluid wallpaper in real time, derived from the album artwork's dominant color palette. When a Spotify Canvas video is available, it plays the artist's official looping video directly on your desktop instead. When you stop playing music, it gracefully reverts back to your original wallpaper.
