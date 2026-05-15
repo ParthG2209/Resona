@@ -65,9 +65,9 @@ The entire application lives in your menu bar. No Dock icon. No main window. No 
 |:--|:--|:--|
 | Track detection | OAuth 2.0 PKCE + Web API polling | `DistributedNotificationCenter` (zero-cost) |
 | Playback state | Real-time via API | Notification payload |
-| Album artwork | Spotify CDN (up to 640px) | AppleScript raw data extraction |
-| Canvas video | Unofficial protobuf API | Not available |
-| Authentication | Browser-based OAuth flow | macOS Automation permission |
+| Album artwork | Spotify CDN (up to 640px) | Spotify API (via track match) |
+| Canvas video | Unofficial protobuf API | Unofficial protobuf API (via track match) |
+| Authentication | Browser-based OAuth flow | macOS Automation + optional Spotify OAuth |
 | Rate limiting | 5-second polling interval | Event-driven, no polling |
 
 Resona includes automatic conflict resolution. If both services are playing simultaneously, a native dialog prompts you to select which source to follow.
@@ -272,8 +272,8 @@ Album Artwork (640x640)
 |:--|:--|
 | Track Detection | `DistributedNotificationCenter` observes `com.apple.Music.playerInfo`. Zero CPU cost — the OS pushes notifications to Resona. |
 | Metadata | Extracted from the notification's `userInfo` dictionary: track name, artist, album, playback state, and duration. |
-| Artwork | `NSAppleScript` executes `tell application "Music" to get raw data of artwork 1 of current track`. Returns PNG/JPEG data directly. |
-| Permissions | Requires one-time macOS Automation permission grant for Music.app (triggered by `NSAppleEventsUsageDescription` in Info.plist). |
+| Artwork & Canvas | `SpotifySearchService` looks up the Apple Music track on Spotify to fetch high-res artwork and Canvas video URLs. |
+| Permissions | Requires one-time macOS Automation permission grant for Music.app (triggered by `NSAppleEventsUsageDescription` in Info.plist), plus optional Spotify OAuth for enhanced artwork/Canvas support. |
 
 ### Power and Thermal Management
 
@@ -365,8 +365,8 @@ site/                                    # React + Vite landing page
 |:--|:--|
 | Spotify alpha limited to 25 users | Spotify restricts Development Mode apps to 25 manually whitelisted users. A quota extension requires a registered business entity with 250k+ MAU. |
 | Canvas relies on unofficial APIs | Spotify Canvas is not part of the public Web API. The protobuf endpoint may change without notice. |
-| Apple Music requires Music.app | Artwork extraction uses AppleScript, which requires the native Music.app to be running. |
-| Not Mac App Store compatible | AppleScript automation and desktop-level window management require entitlements that are incompatible with the Mac App Store sandbox. |
+| Apple Music requires Music.app | Track detection relies on distributed notifications from the native macOS Music.app. |
+| Not Mac App Store compatible | macOS Automation for Music.app and desktop-level window management require entitlements that are incompatible with the Mac App Store sandbox. |
 | Not notarized | Requires right-click > Open on first launch. An Apple Developer Program membership ($99/year) is needed for notarization. |
 
 ---
