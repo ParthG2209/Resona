@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Combine
 import CoreImage
 import MetalKit
 
@@ -31,7 +32,11 @@ final class AnimatedWallpaperController {
     static let shared = AnimatedWallpaperController()
     private init() { 
         observeScreenChanges()
-        observePlaybackState()
+        // Deferred to break circular singleton init:
+        // AnimatedWallpaperController → MusicDetectionService → WallpaperManager → AnimatedWallpaperController
+        DispatchQueue.main.async { [weak self] in
+            self?.observePlaybackState()
+        }
     }
 
     // MARK: - State
@@ -39,6 +44,7 @@ final class AnimatedWallpaperController {
     private var windows: [NSWindow] = []
     private var currentTrackID: String?
     private(set) var isShowing = false
+    private var cancellables = Set<AnyCancellable>()
 
     // Persistent art views — kept alive across song changes so Metal is never rebuilt.
     // Only the artwork image / canvas URL and color palette are swapped on track change.
@@ -95,6 +101,22 @@ final class AnimatedWallpaperController {
                 )
             }
         }
+
+        // CRITICAL: Unpause the fluid shader after every song change.
+        //
+        // During track transitions, a brief "Stopped" playback-state notification
+        // (from Spotify's HTTP 204 or Apple Music's inter-track gap) pauses the
+        // MTKView via observePlaybackState(). But the subsequent "Playing" state
+        // is set on the service's @Published property WITHOUT posting a matching
+        // .playbackStateDidChange notification — so the shader stays frozen.
+        //
+        // show() is the canonical entry point for "a new track is now active",
+        // so unconditionally resume here. If the track is genuinely paused,
+        // the next playback-state notification will re-pause it correctly.
+        for artView in artViews {
+            artView.fluidView?.isPaused = false
+            artView.resumeCanvasPlayer()
+        }
     }
 
     func dismiss() {
@@ -144,23 +166,39 @@ final class AnimatedWallpaperController {
     }
 
     private func observePlaybackState() {
-        NotificationCenter.default.addObserver(
-            forName: .playbackStateDidChange,
-            object: nil, queue: .main
-        ) { [weak self] notification in
-            guard let self, self.isShowing else { return }
-            guard let state = notification.object as? PlaybackState else { return }
-            
-            for artView in self.artViews {
-                if state == .playing {
-                    artView.fluidView?.isPaused = false
-                    artView.resumeCanvasPlayer()
-                } else {
-                    artView.fluidView?.isPaused = true
-                    artView.pauseCanvasPlayer()
+        // Observe the AGGREGATED playback state from MusicDetectionService.
+        //
+        // Previously this listened to raw .playbackStateDidChange notifications
+        // posted by individual services (Spotify / Apple Music). That caused the
+        // shader to freeze on every song change because:
+        //
+        //   1. During track transitions, Spotify's poller can return HTTP 204
+        //      (nothing playing) or is_playing=false for one poll cycle, posting
+        //      .stopped/.paused and pausing the MTKView.
+        //
+        //   2. If the user listens via Apple Music with Spotify also connected,
+        //      Spotify's poller keeps posting .stopped every 3-5 seconds —
+        //      overriding Apple Music's .playing state.
+        //
+        // MusicDetectionService aggregates both services and only reports
+        // .stopped when ALL sources agree music has stopped. Observing its
+        // published $playbackState eliminates cross-service interference and
+        // brief transition-gap freezes.
+        MusicDetectionService.shared.$playbackState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self, self.isShowing else { return }
+                for artView in self.artViews {
+                    if state == .playing {
+                        artView.fluidView?.isPaused = false
+                        artView.resumeCanvasPlayer()
+                    } else {
+                        artView.fluidView?.isPaused = true
+                        artView.pauseCanvasPlayer()
+                    }
                 }
             }
-        }
+            .store(in: &cancellables)
     }
 
     private func makeDesktopWindow(for screen: NSScreen) -> NSWindow {

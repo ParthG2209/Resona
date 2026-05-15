@@ -36,6 +36,7 @@ final class AppleMusicService: ObservableObject {
     @Published private(set) var playbackState: PlaybackState = .stopped
 
     private var debounceWorkItem: DispatchWorkItem?
+    private var stoppedWorkItem: DispatchWorkItem?   // debounces inter-track "Stopped" flickers
     private var lastSeenTrackID: String?
     private var nowPlayingObserver: NSObjectProtocol?
 
@@ -97,11 +98,37 @@ final class AppleMusicService: ObservableObject {
         let state = userInfo["Player State"] as? String ?? ""
 
         switch state {
-        case "Playing":  playbackState = .playing
-        case "Paused":   playbackState = .paused;   return
+        case "Playing":
+            // Cancel any pending "Stopped" notification — this is a song transition,
+            // not a real stop. Music.app fires "Stopped" → "Playing" in rapid
+            // succession when tracks change; without this debounce the brief
+            // "Stopped" reaches MusicDetectionService.checkIfBothStopped(), which
+            // sets the aggregated state to .stopped and freezes the shader.
+            stoppedWorkItem?.cancel()
+            stoppedWorkItem = nil
+            playbackState = .playing
+            // Post .playing so MusicDetectionService can update its aggregated state
+            // (it was never notified of .playing before — only .stopped was posted).
+            NotificationCenter.default.post(name: .playbackStateDidChange, object: PlaybackState.playing)
+        case "Paused":
+            stoppedWorkItem?.cancel()
+            stoppedWorkItem = nil
+            playbackState = .paused
+            NotificationCenter.default.post(name: .playbackStateDidChange, object: PlaybackState.paused)
+            return
         case "Stopped":
             playbackState = .stopped
-            NotificationCenter.default.post(name: .playbackStateDidChange, object: PlaybackState.stopped)
+            // Debounce the stopped notification — if "Playing" arrives within 0.5s
+            // (as it does during normal song transitions), the work item is cancelled
+            // and checkIfBothStopped() is never triggered. Real stops (user pressing
+            // stop) propagate after the brief delay.
+            stoppedWorkItem?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                guard self?.playbackState == .stopped else { return }
+                NotificationCenter.default.post(name: .playbackStateDidChange, object: PlaybackState.stopped)
+            }
+            stoppedWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
             return
         default: return
         }
