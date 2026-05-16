@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import HeroMonolith from './ui/HeroMonolith';
 import Manifesto from './ui/Manifesto';
 import SynesthesiaTunnel from './ui/SynesthesiaTunnel';
@@ -28,6 +29,7 @@ export default function App() {
       <Signals />
       <Artifact />
       <Footer />
+      <Analytics />
     </>
   );
 }
