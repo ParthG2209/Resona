@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import HeroMonolith from './ui/HeroMonolith';
 import Manifesto from './ui/Manifesto';
 import SynesthesiaTunnel from './ui/SynesthesiaTunnel';
@@ -30,6 +31,7 @@ export default function App() {
       <Artifact />
       <Footer />
       <Analytics />
+      <SpeedInsights />
     </>
   );
 }
