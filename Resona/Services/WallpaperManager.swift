@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import CoreImage
 import Combine
+import CryptoKit
 
 // MARK: - WallpaperManager
 
@@ -293,11 +294,14 @@ struct CacheKey {
     let animated: Bool
 
     var filename: String {
-        let hash = "\(source.rawValue)_\(trackID)".data(using: .utf8)!
-            .base64EncodedString()
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-            .prefix(40)
-        return "\(hash).\(animated ? "mp4" : "jpg")"
+        // SHA-256 of the full identity. A previous version truncated base64 of
+        // the plaintext to 40 chars — because base64 preserves input prefixes,
+        // any two tracks sharing the first ~19 title characters (artist dropped
+        // entirely) collided to the same file and served each other's cover art
+        // (classical movements, live cuts, remixes). A hash keys on the whole
+        // "source_name-artist" string, so distinct tracks never collide.
+        let digest = SHA256.hash(data: Data("\(source.rawValue)_\(trackID)".utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return "\(hex).\(animated ? "mp4" : "jpg")"
     }
 }
