@@ -5,9 +5,14 @@ import AppKit
 // MARK: - Notification name for UI to show "Link Spotify" prompt
 
 extension Notification.Name {
-    /// Posted when an Apple Music track change fires but SpotifySearchService has
-    /// no linked user token. The UI observes this to show the "Link Spotify" button.
+    /// Posted when an Apple Music track change fires but no artwork could be
+    /// obtained from Music.app AND there is no linked Spotify token.
+    /// The UI observes this to show the "Link Spotify" button.
     static let appleMusicNeedsSpotifyLink = Notification.Name("appleMusicNeedsSpotifyLink")
+
+    /// Posted when an Apple Music track's artwork was resolved (normally straight
+    /// from Music.app, no Spotify). The UI observes this to retract the prompt.
+    static let appleMusicArtworkResolved = Notification.Name("appleMusicArtworkResolved")
 }
 
 // MARK: - AppleMusicService
@@ -151,25 +156,49 @@ final class AppleMusicService: ObservableObject {
         print("[Resona] Apple Music: New track → \(name) – \(artist) [\(album)]")
 
         Task {
-            let hasToken = SpotifySearchService.shared.isLinked
-                        || SpotifyService.shared.currentAccessToken != nil
+            // Primary artwork source: Music.app itself, no Spotify required.
+            // Read identity + artwork atomically so we can detect a stale update
+            // (Music advanced past this notification) and avoid showing the wrong
+            // cover art. Runs off the main actor since the Apple Event is sync.
+            let snapshot = await Task.detached(priority: .userInitiated) {
+                MusicArtworkProvider.currentSnapshot()
+            }.value
 
-            if !hasToken {
-                print("[Resona] Apple Music: No Spotify token — notifying UI to prompt link")
-                NotificationCenter.default.post(name: .appleMusicNeedsSpotifyLink, object: nil)
-                let track = Track(id: trackID, name: name, artist: artist, album: album,
-                                  artworkURL: nil, canvasURL: nil,
-                                  durationMs: 0, progressMs: 0, source: .appleMusic)
-                scheduleTrackUpdate(track)
+            // If Music.app's current track no longer matches this notification,
+            // it's stale — a newer notification for the real current track will
+            // (or already did) drive the update. Drop this one to avoid mismatched art.
+            if let snapshot, !Self.namesMatch(snapshot.name, name) {
+                print("[Resona] Apple Music: stale notification ('\(name)') — Music.app now on '\(snapshot.name)', dropping to avoid mismatched art")
                 return
             }
 
-            let spotifyResult = await SpotifySearchService.shared.lookup(title: name, artist: artist)
+            var artworkURL: URL? = snapshot?.artwork.flatMap { data in
+                let key = CacheKey(trackID: trackID, source: .appleMusic, animated: false)
+                return ArtworkCache.shared.store(data: data, for: key)
+            }
 
-            if let result = spotifyResult {
-                print("[Resona] Apple Music: Spotify lookup ✅ — canvas=\(result.canvasURL != nil ? "yes" : "no")")
-            } else {
-                print("[Resona] Apple Music: Spotify lookup returned nil — no artwork for this track")
+            var canvasURL: URL?
+
+            // Spotify is now optional — it only adds Canvas (animated) videos, and
+            // serves as an artwork fallback if Music.app returned none (rare).
+            let hasToken = SpotifySearchService.shared.isLinked
+                        || SpotifyService.shared.currentAccessToken != nil
+
+            if hasToken {
+                if let result = await SpotifySearchService.shared.lookup(title: name, artist: artist) {
+                    canvasURL = result.canvasURL
+                    if artworkURL == nil { artworkURL = result.artworkURL }
+                    print("[Resona] Apple Music: Spotify enhancement — canvas=\(result.canvasURL != nil ? "yes" : "no")")
+                }
+            } else if artworkURL == nil {
+                // No Music.app art AND no Spotify — genuinely nothing to show.
+                print("[Resona] Apple Music: No artwork from Music.app and no Spotify — prompting link")
+                NotificationCenter.default.post(name: .appleMusicNeedsSpotifyLink, object: nil)
+            }
+
+            if artworkURL != nil {
+                print("[Resona] Apple Music: artwork from \(canvasURL != nil ? "Music.app + Spotify canvas" : "Music.app")")
+                NotificationCenter.default.post(name: .appleMusicArtworkResolved, object: nil)
             }
 
             let track = Track(
@@ -177,8 +206,8 @@ final class AppleMusicService: ObservableObject {
                 name:       name,
                 artist:     artist,
                 album:      album,
-                artworkURL: spotifyResult?.artworkURL,
-                canvasURL:  spotifyResult?.canvasURL,
+                artworkURL: artworkURL,
+                canvasURL:  canvasURL,
                 durationMs: 0,
                 progressMs: 0,
                 source:     .appleMusic
@@ -186,6 +215,13 @@ final class AppleMusicService: ObservableObject {
 
             scheduleTrackUpdate(track)
         }
+    }
+
+    /// Trim/case-insensitive comparison — the playerInfo notification and the
+    /// Apple Event both originate from Music.app, so exact-after-normalisation.
+    private static func namesMatch(_ a: String, _ b: String) -> Bool {
+        a.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(
+            b.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
     }
 
     // MARK: - Debounce
