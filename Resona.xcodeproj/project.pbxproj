@@ -68,6 +68,7 @@
 				D04D23902F6FECA700680E8A /* Sources */,
 				D04D23912F6FECA700680E8A /* Frameworks */,
 				D04D23922F6FECA700680E8A /* Resources */,
+				D04D24012F6FECA700680E8A /* Copy mediaremote-adapter */,
 			);
 			buildRules = (
 			);
@@ -127,6 +128,24 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		D04D24012F6FECA700680E8A /* Copy mediaremote-adapter */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Copy mediaremote-adapter";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\n# Bundle the vendored mediaremote-adapter (perl script + framework) into\n# Resources. It is loaded at runtime by /usr/bin/perl, NOT linked by the app,\n# so it is intentionally kept out of the Xcode source group / Frameworks phase.\nSRC=\"${SRCROOT}/Vendor/mediaremote-adapter\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/mediaremote-adapter\"\nif [ ! -d \"$SRC\" ]; then echo \"warning: mediaremote-adapter vendor dir missing at $SRC\"; exit 0; fi\nrm -rf \"$DEST\"\nmkdir -p \"$DEST\"\ncp \"$SRC/mediaremote-adapter.pl\" \"$DEST/\"\ncp -R \"$SRC/MediaRemoteAdapter.framework\" \"$DEST/\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		D04D23902F6FECA700680E8A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -176,7 +195,7 @@
 				DEVELOPMENT_TEAM = N7J68T5Q8X;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -240,7 +259,7 @@
 				DEVELOPMENT_TEAM = N7J68T5Q8X;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;

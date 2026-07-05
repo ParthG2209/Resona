@@ -26,6 +26,7 @@ private struct GeneralTab: View {
     @ObservedObject private var settings   = AppSettings.shared
     @ObservedObject private var spotify    = SpotifyService.shared
     @ObservedObject private var appleMusic = AppleMusicService.shared
+    @ObservedObject private var browser    = BrowserNowPlayingService.shared
 
     var body: some View {
         Form {
@@ -63,6 +64,18 @@ private struct GeneralTab: View {
                     connected: appleMusic.isAuthenticated,
                     onConnect: { Task { await AppleMusicService.shared.connect() } },
                     onDisconnect: { AppleMusicService.shared.disconnect() }
+                )
+                connection(
+                    title: "YouTube Tab (Browser)",
+                    connected: settings.browserTabConnected,
+                    onConnect: {
+                        settings.browserTabConnected = true
+                        MusicDetectionService.shared.browserTabConnectionChanged()
+                    },
+                    onDisconnect: {
+                        settings.browserTabConnected = false
+                        MusicDetectionService.shared.browserTabConnectionChanged()
+                    }
                 )
             }
         }

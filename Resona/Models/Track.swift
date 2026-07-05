@@ -30,11 +30,13 @@ struct Track: Equatable {
 enum MusicSource: String, Codable {
     case spotify
     case appleMusic
+    case youtube
 
     var displayName: String {
         switch self {
         case .spotify:     return "Spotify"
         case .appleMusic:  return "Apple Music"
+        case .youtube:     return "YouTube"
         }
     }
 }

@@ -30,6 +30,7 @@ struct MenuBarView: View {
     @ObservedObject var detectionService: MusicDetectionService
     @ObservedObject private var spotify    = SpotifyService.shared
     @ObservedObject private var appleMusic = AppleMusicService.shared
+    @ObservedObject private var browser    = BrowserNowPlayingService.shared
     @ObservedObject private var settings   = AppSettings.shared
 
     @State private var spotifyConnecting     = false
@@ -70,6 +71,12 @@ struct MenuBarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .appleMusicNeedsSpotifyLink)) { _ in
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 showSpotifyLinkPrompt = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .appleMusicArtworkResolved)) { _ in
+            // Artwork was obtained (from Music.app, no Spotify) — retract the prompt.
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                showSpotifyLinkPrompt = false
             }
         }
     }
@@ -235,6 +242,18 @@ struct MenuBarView: View {
                                loading: appleMusicConnecting,
                                connect: connectAppleMusic,
                                disconnect: { detectionService.appleMusic.disconnect() })
+
+                connectionPill("YouTube",
+                               connected: settings.browserTabConnected,
+                               loading: false,
+                               connect: {
+                                   settings.browserTabConnected = true
+                                   detectionService.browserTabConnectionChanged()
+                               },
+                               disconnect: {
+                                   settings.browserTabConnected = false
+                                   detectionService.browserTabConnectionChanged()
+                               })
                 Spacer()
             }
         }
@@ -293,17 +312,30 @@ struct MenuBarView: View {
     // MARK: - Reusable components
 
     private func sourceBadge(_ source: MusicSource) -> some View {
-        let isSpotify = source == .spotify
-        return HStack(spacing: 4) {
-            Image(systemName: isSpotify ? "dot.radiowaves.left.and.right" : "applelogo")
-                .font(.system(size: 9))
-            Text(isSpotify ? "Spotify" : "AM")
-                .font(.system(size: 9, weight: .semibold))
+        let icon: String
+        let label: String
+        let iconTint: Color
+        switch source {
+        case .spotify:
+            icon = "dot.radiowaves.left.and.right"; label = "Spotify"; iconTint = .green
+        case .appleMusic:
+            icon = "applelogo"; label = "AM"; iconTint = .white
+        case .youtube:
+            icon = "play.rectangle.fill"; label = "YouTube"; iconTint = Color(red: 1, green: 0.27, blue: 0.23)
         }
-        .foregroundStyle(isSpotify ? Color.green : .white)
+        // Label stays white for legibility (≥8:1 on the dark portal); the icon
+        // carries the source's brand colour.
+        return HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundStyle(iconTint)
+            Text(label)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.white)
+        }
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(Color.white.opacity(isSpotify ? 0.12 : 0.08), in: Capsule())
+        .background(Color.white.opacity(0.10), in: Capsule())
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
     }
 
