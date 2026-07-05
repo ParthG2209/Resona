@@ -45,6 +45,7 @@ final class AppSettings: ObservableObject {
     @Published var spotifyConnected: Bool           { didSet { persist("spotifyConnected", spotifyConnected) } }
     @Published var appleMusicConnected: Bool         { didSet { persist("appleMusicConnected", appleMusicConnected) } }
     @Published var spotifyLinkedForAppleMusic: Bool  { didSet { persist("spotifyLinkedForAppleMusic", spotifyLinkedForAppleMusic) } }
+    @Published var browserTabConnected: Bool         { didSet { persist("browserTabConnected", browserTabConnected) } }
 
     // MARK: - Canvas Auth
 
@@ -73,6 +74,7 @@ final class AppSettings: ObservableObject {
         spotifyConnected           = Self.load("spotifyConnected")           ?? false
         appleMusicConnected        = Self.load("appleMusicConnected")        ?? false
         spotifyLinkedForAppleMusic = Self.load("spotifyLinkedForAppleMusic") ?? false
+        browserTabConnected        = Self.load("browserTabConnected")        ?? false
         spotifySpDcCookie          = Self.load("spotifySpDcCookie")          ?? ""
     }
 
@@ -93,15 +95,19 @@ final class AppSettings: ObservableObject {
 // MARK: - Supporting Enums
 
 enum ServicePreference: String, Codable, CaseIterable {
+    // Raw value "both" is retained for back-compat with persisted prefs; it now
+    // means "any source." A dedicated youtubeOnly mirrors the two music services.
     case both
     case spotifyOnly
     case appleMusicOnly
+    case youtubeOnly
 
     var displayName: String {
         switch self {
-        case .both:           return "Both (ask if conflict)"
+        case .both:           return "All sources (ask if conflict)"
         case .spotifyOnly:    return "Spotify only"
         case .appleMusicOnly: return "Apple Music only"
+        case .youtubeOnly:    return "YouTube / Browser only"
         }
     }
 }

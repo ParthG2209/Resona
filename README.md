@@ -61,16 +61,20 @@ The entire application lives in your menu bar. No Dock icon. No main window. No 
 
 ### Music Detection
 
-| Capability | Spotify | Apple Music |
-|:--|:--|:--|
-| Track detection | OAuth 2.0 PKCE + Web API polling | `DistributedNotificationCenter` (zero-cost) |
-| Playback state | Real-time via API | Notification payload |
-| Album artwork | Spotify CDN (up to 640px) | Spotify API (via track match) |
-| Canvas video | Unofficial protobuf API | Unofficial protobuf API (via track match) |
-| Authentication | Browser-based OAuth flow | macOS Automation + optional Spotify OAuth |
-| Rate limiting | 5-second polling interval | Event-driven, no polling |
+| Capability | Spotify | Apple Music | Browser Tab (YouTube, etc.) |
+|:--|:--|:--|:--|
+| Track detection | OAuth 2.0 PKCE + Web API polling | `DistributedNotificationCenter` (zero-cost) | System now-playing via `mediaremote-adapter` |
+| Playback state | Real-time via API | Notification payload | Now-playing stream |
+| Album artwork | Spotify CDN (up to 640px) | **Music.app native, full-res (no Spotify required)** | Now-playing artwork |
+| Canvas video | Unofficial protobuf API | Optional, via Spotify track match | — |
+| Authentication | Browser-based OAuth flow | macOS Automation (Apple Events) | None — reads system now-playing |
+| Rate limiting | 5-second polling interval | Event-driven, no polling | Event-driven, debounced |
 
-Resona includes automatic conflict resolution. If both services are playing simultaneously, a native dialog prompts you to select which source to follow.
+**Apple Music no longer requires Spotify.** Artwork is read directly from Music.app via a single Apple Event per track change (the permission the app already declared). A linked Spotify account is now optional — it only adds Canvas videos.
+
+**Browser tab audio** (YouTube and any HTML5 media session in Safari / Chrome / Brave / Edge / Arc / etc.) is detected through the system-wide Now Playing feed. Because macOS 15.4+ gates direct `MediaRemote` access behind a private entitlement, Resona reads it the way other native tools do — by spawning the vendored [`mediaremote-adapter`](https://github.com/ungive/mediaremote-adapter) under the system `/usr/bin/perl`. See [Privacy and Security](#privacy-and-security).
+
+Resona includes automatic conflict resolution. If both music services are playing simultaneously, a native dialog prompts you to select which source to follow. Browser tab audio is a deliberate foreground action, so it applies directly.
 
 ### Animated Wallpaper Engine
 
@@ -359,6 +363,8 @@ site/                                    # React + Vite landing page
 - **Local-only processing.** All artwork processing, color extraction, and shader rendering happens on-device.
 - **Keychain storage.** OAuth tokens and the `sp_dc` cookie are stored exclusively in the macOS Keychain, never in plain text.
 - **No network requests beyond APIs.** Resona communicates only with the Spotify Web API (`api.spotify.com`), Spotify's token endpoint, and the Canvas protobuf endpoint. There is no telemetry, no analytics server, and no third-party SDKs.
+- **Bundled helper process (browser tab audio only).** When you enable browser tab detection, Resona spawns the vendored [`mediaremote-adapter`](https://github.com/ungive/mediaremote-adapter) (BSD-3-Clause) under the system `/usr/bin/perl` to read macOS's system-wide Now Playing feed — the only practical way to access it from an app bundle on macOS 15.4+. This reads the currently-playing track's title, artist, and artwork for **browser** sessions only; it runs entirely on-device, sends nothing off the machine, and is inert unless you turn the feature on. The vendored adapter carries its own license under `Vendor/mediaremote-adapter/`.
+- **Apple Music artwork stays on-device.** Cover art is read straight from Music.app via a local Apple Event — no third-party service, no network round-trip.
 - **Open source.** The complete source code is available for inspection.
 
 ---
@@ -369,8 +375,9 @@ site/                                    # React + Vite landing page
 |:--|:--|
 | Spotify alpha limited to 25 users | Spotify restricts Development Mode apps to 25 manually whitelisted users. A quota extension requires a registered business entity with 250k+ MAU. |
 | Canvas relies on unofficial APIs | Spotify Canvas is not part of the public Web API. The protobuf endpoint may change without notice. |
-| Apple Music requires Music.app | Track detection relies on distributed notifications from the native macOS Music.app. |
-| Not Mac App Store compatible | macOS Automation for Music.app and desktop-level window management require entitlements that are incompatible with the Mac App Store sandbox. |
+| Apple Music requires Music.app | Track detection relies on distributed notifications from the native macOS Music.app; artwork is read locally from Music.app via an Apple Event. |
+| Browser tab audio needs the bundled helper | YouTube/browser detection spawns the vendored `mediaremote-adapter` under the system `/usr/bin/perl` (present by default on macOS). Direct `MediaRemote` access is gated behind a private entitlement on macOS 15.4+, so an app bundle cannot read it without this helper. |
+| Not Mac App Store compatible | macOS Automation for Music.app, desktop-level window management, and the now-playing helper require capabilities incompatible with the Mac App Store sandbox. |
 | Not notarized | Requires right-click > Open on first launch. An Apple Developer Program membership ($99/year) is needed for notarization. |
 
 ---

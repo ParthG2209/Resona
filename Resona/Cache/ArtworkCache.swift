@@ -72,7 +72,8 @@ final class ArtworkCache {
     private func createDirectoriesIfNeeded() {
         let subdirs = [
             cacheRoot.appendingPathComponent(MusicSource.spotify.rawValue),
-            cacheRoot.appendingPathComponent(MusicSource.appleMusic.rawValue)
+            cacheRoot.appendingPathComponent(MusicSource.appleMusic.rawValue),
+            cacheRoot.appendingPathComponent(MusicSource.youtube.rawValue)
         ]
         for dir in subdirs {
             try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)

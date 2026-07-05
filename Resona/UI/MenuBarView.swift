@@ -30,6 +30,7 @@ struct MenuBarView: View {
     @ObservedObject var detectionService: MusicDetectionService
     @ObservedObject private var spotify    = SpotifyService.shared
     @ObservedObject private var appleMusic = AppleMusicService.shared
+    @ObservedObject private var browser    = BrowserNowPlayingService.shared
     @ObservedObject private var settings   = AppSettings.shared
 
     @State private var spotifyConnecting     = false
@@ -72,6 +73,12 @@ struct MenuBarView: View {
                 showSpotifyLinkPrompt = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .appleMusicArtworkResolved)) { _ in
+            // Artwork was obtained (from Music.app, no Spotify) — retract the prompt.
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                showSpotifyLinkPrompt = false
+            }
+        }
     }
 
     // MARK: - Portal
@@ -79,57 +86,64 @@ struct MenuBarView: View {
     private var portalCard: some View {
         Group {
             if let track = detectionService.activeTrack {
-                ZStack {
-                    PortalBackdropView(isPlaying: detectionService.playbackState == .playing)
-                        .allowsHitTesting(false)
+                VStack(spacing: 12) {
+                    HStack(alignment: .center, spacing: 14) {
+                        AlbumPortalArt(url: track.artworkURL, isPlaying: detectionService.playbackState == .playing)
 
-                    AsyncImage(url: track.artworkURL) { phase in
-                        if case .success(let image) = phase {
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .blur(radius: 24)
-                                .opacity(0.28)
-                                .scaleEffect(1.18)
-                        }
-                    }
-                    .allowsHitTesting(false)
-
-                    VStack(spacing: 12) {
-                        HStack(alignment: .center, spacing: 14) {
-                            AlbumPortalArt(url: track.artworkURL, isPlaying: detectionService.playbackState == .playing)
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 6) {
-                                    sourceBadge(track.source)
-                                    playbackBadge
-                                }
-
-                                Text(track.name)
-                                    .font(.system(size: 17, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .multilineTextAlignment(.leading)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(track.artist)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundStyle(.white.opacity(0.76))
-                                        .lineLimit(1)
-
-                                    Text(track.album)
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.white.opacity(0.48))
-                                        .lineLimit(1)
-                                }
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                sourceBadge(track.source)
+                                playbackBadge
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Text(track.name)
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                                .truncationMode(.tail)
+                                .multilineTextAlignment(.leading)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(track.artist)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.76))
+                                    .lineLimit(1)
+
+                                Text(track.album)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.white.opacity(0.48))
+                                    .lineLimit(1)
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(14)
                 }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: 172)
+                // Decorative layers live in .background so they are sized to the card
+                // and can NEVER widen it. The blurred artwork is .scaledToFill() with no
+                // frame — as a ZStack sibling it returned its intrinsic-fill width (e.g.
+                // ~306pt for 1280×720 YouTube art), ballooning the card and shoving the
+                // content right / clipping the title. As a background it's clipped instead.
+                .background(
+                    ZStack {
+                        PortalBackdropView(isPlaying: detectionService.playbackState == .playing)
+                            .allowsHitTesting(false)
+
+                        AsyncImage(url: track.artworkURL) { phase in
+                            if case .success(let image) = phase {
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .blur(radius: 24)
+                                    .opacity(0.28)
+                                    .scaleEffect(1.18)
+                            }
+                        }
+                        .allowsHitTesting(false)
+                    }
+                )
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -235,6 +249,18 @@ struct MenuBarView: View {
                                loading: appleMusicConnecting,
                                connect: connectAppleMusic,
                                disconnect: { detectionService.appleMusic.disconnect() })
+
+                connectionPill("YouTube",
+                               connected: settings.browserTabConnected,
+                               loading: false,
+                               connect: {
+                                   settings.browserTabConnected = true
+                                   detectionService.browserTabConnectionChanged()
+                               },
+                               disconnect: {
+                                   settings.browserTabConnected = false
+                                   detectionService.browserTabConnectionChanged()
+                               })
                 Spacer()
             }
         }
@@ -293,17 +319,30 @@ struct MenuBarView: View {
     // MARK: - Reusable components
 
     private func sourceBadge(_ source: MusicSource) -> some View {
-        let isSpotify = source == .spotify
-        return HStack(spacing: 4) {
-            Image(systemName: isSpotify ? "dot.radiowaves.left.and.right" : "applelogo")
-                .font(.system(size: 9))
-            Text(isSpotify ? "Spotify" : "AM")
-                .font(.system(size: 9, weight: .semibold))
+        let icon: String
+        let label: String
+        let iconTint: Color
+        switch source {
+        case .spotify:
+            icon = "dot.radiowaves.left.and.right"; label = "Spotify"; iconTint = .green
+        case .appleMusic:
+            icon = "applelogo"; label = "AM"; iconTint = .white
+        case .youtube:
+            icon = "play.rectangle.fill"; label = "YouTube"; iconTint = Color(red: 1, green: 0.27, blue: 0.23)
         }
-        .foregroundStyle(isSpotify ? Color.green : .white)
+        // Label stays white for legibility (≥8:1 on the dark portal); the icon
+        // carries the source's brand colour.
+        return HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundStyle(iconTint)
+            Text(label)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.white)
+        }
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(Color.white.opacity(isSpotify ? 0.12 : 0.08), in: Capsule())
+        .background(Color.white.opacity(0.10), in: Capsule())
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
     }
 

@@ -15,6 +15,7 @@ final class MusicDetectionService: ObservableObject {
 
     let spotify    = SpotifyService.shared
     let appleMusic = AppleMusicService.shared
+    let browser    = BrowserNowPlayingService.shared
 
     // MARK: - Published State
 
@@ -28,14 +29,15 @@ final class MusicDetectionService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let wallpaperManager = WallpaperManager.shared
 
-    // Apple Music monitoring is always-on once started (just a single
-    // DistributedNotificationCenter observer — zero CPU cost).
+    // Apple Music and browser-tab monitoring are always-on once started —
+    // each is a single push notification observer, zero CPU cost.
     private var appleMusicMonitoringActive = false
+    private var browserMonitoringActive = false
 
     // MARK: - Lifecycle
 
     func startMonitoring() {
-        print("[Resona] MusicDetection: startMonitoring — spotify=\(AppSettings.shared.spotifyConnected), appleMusic=\(AppSettings.shared.appleMusicConnected)")
+        print("[Resona] MusicDetection: startMonitoring — spotify=\(AppSettings.shared.spotifyConnected), appleMusic=\(AppSettings.shared.appleMusicConnected), browserTab=\(AppSettings.shared.browserTabConnected)")
 
         if AppSettings.shared.spotifyConnected {
             spotify.startPolling()
@@ -46,6 +48,12 @@ final class MusicDetectionService: ObservableObject {
             print("[Resona] Starting Apple Music monitoring (notification-only, zero CPU)")
             appleMusic.startMonitoring()
             appleMusicMonitoringActive = true
+        }
+
+        if AppSettings.shared.browserTabConnected && !browserMonitoringActive {
+            print("[Resona] Starting browser tab monitoring (MediaRemote, zero CPU)")
+            browser.startMonitoring()
+            browserMonitoringActive = true
         }
     }
 
@@ -65,10 +73,26 @@ final class MusicDetectionService: ObservableObject {
         }
     }
 
+    /// Called when the browser-tab connection toggle changes mid-session.
+    func browserTabConnectionChanged() {
+        if AppSettings.shared.browserTabConnected {
+            guard !browserMonitoringActive else { return }
+            Logger.info("MusicDetection: browser tab connected mid-session, starting monitoring", category: .general)
+            browser.startMonitoring()
+            browserMonitoringActive = true
+        } else {
+            browser.stopMonitoring()
+            browserMonitoringActive = false
+            checkIfAllStopped()
+        }
+    }
+
     func stopMonitoring() {
         spotify.stopPolling()
         appleMusic.stopMonitoring()
+        browser.stopMonitoring()
         appleMusicMonitoringActive = false
+        browserMonitoringActive = false
     }
 
     // MARK: - Observers
@@ -97,7 +121,7 @@ final class MusicDetectionService: ObservableObject {
     @objc private func playbackStateDidChange(_ notification: Notification) {
         guard let state = notification.object as? PlaybackState else { return }
         if state == .stopped {
-            checkIfBothStopped()
+            checkIfAllStopped()
         } else {
             playbackState = state
         }
@@ -117,11 +141,19 @@ final class MusicDetectionService: ObservableObject {
             guard newTrack.source == .appleMusic else { return }
             applyTrack(newTrack)
 
+        case .youtubeOnly:
+            guard newTrack.source == .youtube else { return }
+            applyTrack(newTrack)
+
         case .both:
+            // "All sources." Spotify and Apple Music can play simultaneously and
+            // thrash the wallpaper, so keep the explicit conflict prompt for that
+            // pair. Browser/YouTube audio is a deliberate foreground user action,
+            // so it applies directly and takes over.
             let spotifyPlaying    = spotify.playbackState == .playing
             let appleMusicPlaying = appleMusic.playbackState == .playing
 
-            if spotifyPlaying && appleMusicPlaying {
+            if newTrack.source != .youtube, spotifyPlaying && appleMusicPlaying {
                 DispatchQueue.main.async {
                     self.showServiceConflictPrompt = true
                     NotificationCenter.default.post(name: .serviceConflictDetected, object: nil)
@@ -153,11 +185,12 @@ final class MusicDetectionService: ObservableObject {
 
     // MARK: - Stop Logic
 
-    private func checkIfBothStopped() {
+    private func checkIfAllStopped() {
         let spotifyStopped    = spotify.playbackState == .stopped
         let appleMusicStopped = appleMusic.playbackState == .stopped
+        let browserStopped    = !browserMonitoringActive || browser.playbackState == .stopped
 
-        if spotifyStopped && appleMusicStopped {
+        if spotifyStopped && appleMusicStopped && browserStopped {
             playbackState = .stopped
             activeTrack   = nil
             if AppSettings.shared.onMusicStop == .revertToUserWallpaper {
