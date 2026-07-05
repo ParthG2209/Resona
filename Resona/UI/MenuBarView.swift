@@ -86,57 +86,64 @@ struct MenuBarView: View {
     private var portalCard: some View {
         Group {
             if let track = detectionService.activeTrack {
-                ZStack {
-                    PortalBackdropView(isPlaying: detectionService.playbackState == .playing)
-                        .allowsHitTesting(false)
+                VStack(spacing: 12) {
+                    HStack(alignment: .center, spacing: 14) {
+                        AlbumPortalArt(url: track.artworkURL, isPlaying: detectionService.playbackState == .playing)
 
-                    AsyncImage(url: track.artworkURL) { phase in
-                        if case .success(let image) = phase {
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .blur(radius: 24)
-                                .opacity(0.28)
-                                .scaleEffect(1.18)
-                        }
-                    }
-                    .allowsHitTesting(false)
-
-                    VStack(spacing: 12) {
-                        HStack(alignment: .center, spacing: 14) {
-                            AlbumPortalArt(url: track.artworkURL, isPlaying: detectionService.playbackState == .playing)
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 6) {
-                                    sourceBadge(track.source)
-                                    playbackBadge
-                                }
-
-                                Text(track.name)
-                                    .font(.system(size: 17, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .multilineTextAlignment(.leading)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(track.artist)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundStyle(.white.opacity(0.76))
-                                        .lineLimit(1)
-
-                                    Text(track.album)
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.white.opacity(0.48))
-                                        .lineLimit(1)
-                                }
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                sourceBadge(track.source)
+                                playbackBadge
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Text(track.name)
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                                .truncationMode(.tail)
+                                .multilineTextAlignment(.leading)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(track.artist)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.76))
+                                    .lineLimit(1)
+
+                                Text(track.album)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.white.opacity(0.48))
+                                    .lineLimit(1)
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(14)
                 }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: 172)
+                // Decorative layers live in .background so they are sized to the card
+                // and can NEVER widen it. The blurred artwork is .scaledToFill() with no
+                // frame — as a ZStack sibling it returned its intrinsic-fill width (e.g.
+                // ~306pt for 1280×720 YouTube art), ballooning the card and shoving the
+                // content right / clipping the title. As a background it's clipped instead.
+                .background(
+                    ZStack {
+                        PortalBackdropView(isPlaying: detectionService.playbackState == .playing)
+                            .allowsHitTesting(false)
+
+                        AsyncImage(url: track.artworkURL) { phase in
+                            if case .success(let image) = phase {
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .blur(radius: 24)
+                                    .opacity(0.28)
+                                    .scaleEffect(1.18)
+                            }
+                        }
+                        .allowsHitTesting(false)
+                    }
+                )
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
