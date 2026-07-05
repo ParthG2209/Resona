@@ -189,24 +189,126 @@ final class BrowserNowPlayingService: ObservableObject {
             return
         }
         lastKey = key
-
-        var artworkURL: URL?
-        if let b64 = p["artworkData"] as? String, let artData = Data(base64Encoded: b64), !artData.isEmpty {
-            let cacheKey = CacheKey(trackID: key, source: .youtube, animated: false)
-            artworkURL = ArtworkCache.shared.store(data: artData, for: cacheKey)
-        }
-
-        let track = Track(
-            id: key, name: title, artist: artist, album: album,
-            artworkURL: artworkURL, canvasURL: nil,
-            durationMs: 0, progressMs: 0, source: .youtube
-        )
-
-        currentTrack = track
         playbackState = .playing
         NotificationCenter.default.post(name: .playbackStateDidChange, object: PlaybackState.playing)
-        NotificationCenter.default.post(name: .trackDidChange, object: track)
-        print("[Resona] BrowserNowPlaying: \(title) – \(artist) [\(bundleID)]")
+
+        // The now-playing feed only carries a ~120px thumbnail. For a regular
+        // youtube.com/watch tab we can do far better: read the active tab's URL
+        // (one Apple Event, no tab scan), pull the video id, and fetch YouTube's
+        // real thumbnail (up to 1280x720). Falls back to the feed art for
+        // YouTube Music (SPA — no id in the URL), Firefox (no AppleScript URL),
+        // background-tab playback, or any title mismatch.
+        let feedB64 = p["artworkData"] as? String
+        Task { [weak self] in
+            guard let self else { return }
+            var artData = await self.highResYouTubeArtwork(bundleID: bundleID, nowPlayingTitle: title)
+            let upgraded = artData != nil
+            if artData == nil, let b64 = feedB64 { artData = Data(base64Encoded: b64) }
+
+            var artworkURL: URL?
+            if let artData, !artData.isEmpty {
+                let cacheKey = CacheKey(trackID: key, source: .youtube, animated: false)
+                artworkURL = ArtworkCache.shared.store(data: artData, for: cacheKey)
+            }
+
+            // The user may have skipped during the async fetch — don't apply stale art.
+            guard self.lastKey == key else { return }
+
+            let track = Track(
+                id: key, name: title, artist: artist, album: album,
+                artworkURL: artworkURL, canvasURL: nil,
+                durationMs: 0, progressMs: 0, source: .youtube
+            )
+            self.currentTrack = track
+            NotificationCenter.default.post(name: .trackDidChange, object: track)
+            print("[Resona] BrowserNowPlaying: \(title) – \(artist) [\(bundleID)]\(upgraded ? " (hi-res)" : "")")
+        }
+    }
+
+    // MARK: - High-res YouTube artwork (regular youtube.com/watch only)
+
+    nonisolated private enum BrowserStyle { case chromium, safari }
+
+    /// Scriptable browsers whose active-tab URL we can read via Apple Events.
+    /// Firefox is intentionally absent — it exposes no tab URL to AppleScript.
+    private static func scriptableBrowser(_ bundleID: String) -> (app: String, style: BrowserStyle)? {
+        switch bundleID {
+        case "com.google.Chrome":         return ("Google Chrome", .chromium)
+        case "com.google.Chrome.beta":    return ("Google Chrome Beta", .chromium)
+        case "com.google.Chrome.canary":  return ("Google Chrome Canary", .chromium)
+        case "com.brave.Browser":         return ("Brave Browser", .chromium)
+        case "com.microsoft.edgemac":     return ("Microsoft Edge", .chromium)
+        case "com.vivaldi.Vivaldi":       return ("Vivaldi", .chromium)
+        case "com.operasoftware.Opera":   return ("Opera", .chromium)
+        case "company.thebrowser.Browser":return ("Arc", .chromium)
+        case "com.apple.Safari":          return ("Safari", .safari)
+        case "com.apple.SafariTechnologyPreview": return ("Safari Technology Preview", .safari)
+        default: return nil
+        }
+    }
+
+    private func highResYouTubeArtwork(bundleID: String, nowPlayingTitle: String) async -> Data? {
+        guard let browser = Self.scriptableBrowser(bundleID) else { return nil }
+        guard let tab = await Task.detached(priority: .userInitiated, operation: {
+            Self.activeTab(appName: browser.app, style: browser.style)
+        }).value else { return nil }
+
+        // Regular YouTube only — music.youtube.com is an SPA with no id in the URL.
+        guard let host = URLComponents(string: tab.url)?.host?.lowercased(),
+              host.contains("youtube.com"), !host.contains("music.youtube.com"),
+              let videoID = Self.youtubeID(from: tab.url),
+              Self.titlesPlausiblyMatch(nowPlayingTitle, tab.title)
+        else { return nil }
+
+        return await Self.fetchThumbnail(videoID: videoID)
+    }
+
+    /// One Apple Event: the front window's active/current tab URL + title.
+    nonisolated private static func activeTab(appName: String, style: BrowserStyle) -> (url: String, title: String)? {
+        let tabRef = style == .safari ? "current tab of front window" : "active tab of front window"
+        let titleProp = style == .safari ? "name" : "title"
+        let src = """
+        tell application "\(appName)"
+            if not running then return ""
+            if (count of windows) is 0 then return ""
+            set t to \(tabRef)
+            return (URL of t) & linefeed & (\(titleProp) of t)
+        end tell
+        """
+        var err: NSDictionary?
+        guard let result = NSAppleScript(source: src)?.executeAndReturnError(&err), err == nil else { return nil }
+        let lines = (result.stringValue ?? "").components(separatedBy: "\n")
+        guard let url = lines.first, !url.isEmpty else { return nil }
+        return (url, lines.count > 1 ? lines[1] : "")
+    }
+
+    nonisolated private static func youtubeID(from url: String) -> String? {
+        guard let range = url.range(of: "[?&]v=([A-Za-z0-9_-]{11})", options: .regularExpression) else { return nil }
+        // range covers "v=<id>" possibly with leading ? or &; extract the 11-char id.
+        let matched = String(url[range])
+        return matched.range(of: "[A-Za-z0-9_-]{11}$", options: .regularExpression).map { String(matched[$0]) }
+    }
+
+    /// Lenient guard so a *different* front-tab video doesn't hijack the art:
+    /// require a shared normalized chunk between the now-playing title and the
+    /// tab title (which is "<video title> - YouTube").
+    nonisolated private static func titlesPlausiblyMatch(_ nowPlaying: String, _ tabTitle: String) -> Bool {
+        func norm(_ s: String) -> String { s.lowercased().filter { $0.isLetter || $0.isNumber } }
+        let a = norm(nowPlaying)
+        let b = norm(tabTitle.replacingOccurrences(of: "youtube", with: ""))
+        guard a.count >= 6, b.count >= 6 else { return false }
+        return b.contains(String(a.prefix(12))) || a.contains(String(b.prefix(12)))
+    }
+
+    nonisolated private static func fetchThumbnail(videoID: String) async -> Data? {
+        for variant in ["maxresdefault", "sddefault", "hqdefault"] {
+            guard let url = URL(string: "https://i.ytimg.com/vi/\(videoID)/\(variant).jpg") else { continue }
+            guard let (data, resp) = try? await URLSession.shared.data(from: url) else { continue }
+            if let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 2048 {
+                return data   // maxres 404s when absent; hqdefault always exists
+            }
+        }
+        return nil
     }
 
     private func markStoppedIfNeeded() {
